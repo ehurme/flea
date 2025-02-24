@@ -223,7 +223,23 @@ flea_plot_spectrogram <- function(data, sampling_rate = NULL, window = 1,
   peaks <- fpeaks(density, f = sampling_rate, nmax = n_peaks, plot = TRUE)
 
   # Return the summary
-  return(list(peaks, dom_freq))
+  return(list(dom_freq, density, peaks))
 }
 
+
+# density <- s[[2]]
+# threshold <- 0.8
+get_peak_range <- function(density, threshold = 0.8, smooth = TRUE, smooth_pts = 200){
+  idx <- which(density[,2] > threshold)
+  peak = density[idx,]
+  if(smooth == TRUE){
+    sm <- spline(x = density[,1], y = density[,2], n = smooth_pts) %>% as.data.frame()
+    plot(density, type = "l")
+    lines(sm, col = 2, lwd = 1)
+    idx <- which(sm$y > threshold)
+    peak = sm[idx,]
+  }
+  peak_summary <- summary(peak$x)
+  return(list(peak, peak_summary))
+}
 
