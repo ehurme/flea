@@ -223,7 +223,7 @@ flea_plot_spectrogram <- function(data, sampling_rate = NULL, window = 1,
   peaks <- fpeaks(density, f = sampling_rate, nmax = n_peaks, plot = TRUE)
 
   # Return the summary
-  return(list(peaks, dom_freq))
+  return(list(dom_freq, density, peaks))
 }
 
 
