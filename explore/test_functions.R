@@ -6,8 +6,8 @@ library(zoo)
 
 source("./R/flea_functions.R")
 
-data <- fread("../../Downloads/02_302F.csv")
-data <- fread("../../Downloads/02_302F.csv")
+data <- fread("../../../Downloads/02_302F.csv")
+data <- fread("../../../Downloads/02_302F.csv")
 
 processed_data <- flea_preprocess(data)
 
