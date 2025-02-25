@@ -2,7 +2,7 @@
 
 Code to process data from flea tags
 
-## Scripts
+## Functions
 read_flea_tag_data()
 
 flea_preprocess()
