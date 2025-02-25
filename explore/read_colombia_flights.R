@@ -5,27 +5,130 @@ library(zoo)
 library(seewave)
 library(tuneR)
 library(plotly)
+library(readxl)
 
 source("./R/flea_functions.R")
 sampling_rate = 105
 
+df <- read_xlsx("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/Finca_Flights_2025.xlsx", sheet = 2)
+
+# file structure
+## date_time_tag_species_bat_trial.txt
 files <- list.files(path = "../../../Dropbox/MPI/Wingbeat/Colombia25/Data/",
-           pattern = "Trial", recursive = TRUE, full.names = TRUE)
+           pattern = "*txt", recursive = TRUE, full.names = TRUE)
+files <- files[grepl(x = files, pattern = "Trial")]
+file_path = files[10]
 
-wb <- list()
+wb <- data.frame()
+plot(0,0, xlim = c(0.005, 0.020), ylim = c(0.8,1), xlab = "Frequency", ylab = "Amplitude")
 for(file_path in files){
-  flea_data <- read_flea_tag_data(file_path)
-  processed_data <- flea_preprocess(data = flea_data$data,
-                                    window = 0.5)
+  try({
+    flea_data <- read_flea_tag_data(file_path)
+    processed_data <- flea_preprocess(data = flea_data$data,
+                                      window = 0.5)
+    duration_flea = nrow(processed_data)/sampling_rate
+    freq <- flea_plot_spectrogram(data = processed_data, #[complete.cases(processed_data$timeMilliseconds),],
+                                  sampling_rate = sampling_rate, fmin = 5, fmax = 40, window = 2,
+                                  plot_spectro = FALSE, plot_density = FALSE,
+                                  overlay_dominant_freq = FALSE)
 
-  # p <- flea_plot(processed_data, label_high_variability = TRUE, plot_variance = FALSE)
-  # p
+    processed_data$spectro_freq <- NA
+    idx <- which(!is.na(freq[[2]][,2]))
+    for(i in idx){
+      pidx <- which.min(abs(freq[[2]][i,1] - processed_data$timeSeconds))
+      processed_data$spectro_freq[pidx] <- freq[[2]][i,2]*1000
+    }
 
 
-  freq <- flea_plot_spectrogram(data = processed_data, #[complete.cases(processed_data$timeMilliseconds),],
-                      sampling_rate = 105, fmin = 5, fmax = 40, window = 2,
-                      plot_spectro = FALSE, plot_density = TRUE)
-  peak <- get_peak_range(density = freq[[2]], smooth = TRUE)
-  peak[[3]] <- file_path
+    p <- flea_plot(processed_data, label_high_variability = TRUE,
+                   plot_variance = FALSE, plot_spectro = TRUE)
+    p
 
+    dom_freq_length <- freq[[2]][,2] %>% na.omit() %>% length()
+    peak <- get_peak_range(density = freq[[3]],threshold = 0.85,
+                           smooth = TRUE, plot_smooth = FALSE, spar = 0)
+    peak[[3]] <- file_path
+
+    lines(x = peak[[1]], col = sample(1:10, size = 1))
+
+    w <- data.frame(file = file_path,
+                    duration_flea,
+                    dom_freq_length,
+                    x = peak[[1]]$x,
+                    y = peak[[1]]$y,
+                    min_peak = peak[[2]][1] %>% as.numeric(),
+                    q1_peak = peak[[2]][2] %>% as.numeric(),
+                    median_peak = peak[[2]][3] %>% as.numeric(),
+                    mean_peak = peak[[2]][4] %>% as.numeric(),
+                    q3_peak = peak[[2]][5] %>% as.numeric(),
+                    max_peak = peak[[2]][6] %>% as.numeric()
+                    )
+    wb <- rbind(wb, w)
+  })
 }
+
+wb$date <- ymd(sapply(strsplit(sapply(strsplit(wb$file, "_"), "[", 1), "/"), "[", 9))
+wb$tag_id <- sapply(strsplit(wb$file, "_"), "[", 5)
+wb$species <- sapply(strsplit(wb$file, "_"), "[", 6)
+wb$bat <- sapply(strsplit(wb$file, "_"), "[", 7)
+wb$trial <- substr(sapply(strsplit(wb$file, "_"), "[", 8), 6,6) # %>% as.numeric()
+wb$bat_mass <- NA
+wb$flea_mass <- NA
+wb$housing_mass <- NA
+wb$velcro_mass <- NA
+wb$tag_mass <- NA
+
+bats <- unique(wb$bat)
+bat = bats[1]
+for(bat in bats){
+  # idx <- which(df$bat == bat)
+  for(i in 2:5){
+    idx <- which(df$bat == bat & df$trial == paste0(i, ".0"))
+    if(length(idx) > 0){
+      widx <- which(wb$bat == bat & wb$trial == i)
+      wb$bat_mass[widx] <- as.numeric(df$`bat weight*`[idx]) - as.numeric(df$`velco weight`[idx])
+      wb$flea_mass[widx] <- as.numeric(df$`tag weight`[idx])
+      wb$housing_mass[widx] <- as.numeric(df$`housing weight`[idx])
+      wb$velcro_mass[widx] <- as.numeric(df$`velco weight`[idx])
+      wb$tag_mass[widx] <- as.numeric(df$`tag weight`[idx]) + as.numeric(df$`velco weight`[idx]) +
+        as.numeric(df$`housing weight`[idx])
+    }
+  }
+}
+
+wb$total_mass <- wb$bat_mass + wb$tag_mass
+
+wb$dom_freq_length %>% hist()
+wb$species %>% table()
+wb_filter <- wb %>% filter(species == "Db", duration_flea > 100, dom_freq_length > 30)
+p1 <- ggplot(wb_filter, aes(x, y, col = tag_mass))+
+  geom_path(linewidth = 0.75, aes(group = c(trial)))+
+  geom_point(aes(x = median_peak, y = max(y)))+
+  facet_wrap(~species+bat)+
+  theme_bw()+
+  scale_color_viridis_c()
+
+p1
+p2 <- ggplot(wb_filter, aes(total_mass, median_peak, group = bat, col = trial))+
+  geom_path(col = 1)+geom_point()+
+  facet_wrap(~species+bat, scales = "free")+
+  theme_bw()
+
+p2
+
+ggplot(wb_filter, aes(x = total_mass, y = min_peak, group = bat, col = trial))+
+  geom_path(aes(group = bat), col = 1)+
+  geom_point()+
+  facet_wrap(~species+bat)+
+  theme_bw()
+
+ggpubr::ggarrange(p1,p2, ncol = 1, common.legend = TRUE)
+
+ggplot(wb_filter, aes(x = median_peak*1000, y = total_mass))+
+  geom_point(aes(col = tag_mass), size = 3)+
+  geom_smooth(method = "lm")+
+  scale_color_viridis_c()+
+  xlab("Wingbeat frequency (Hz)")
+
+# remove frequencies near the start and end of flights
+# remove frequencies af

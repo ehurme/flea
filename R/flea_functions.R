@@ -62,18 +62,32 @@ flea_preprocess <- function(data, window = 0.5) {
       rolling_var_Z = rollapply(accZ_g, width = sampling_rate * window, FUN = var, fill = NA, align = "right"),
       rolling_var_VeDBA = rollapply(VeDBA, width = sampling_rate * window, FUN = var, fill = NA, align = "right")
     )
+  # add first principle component
+  pc <- princomp(data %>% select(accX_g, accY_g, accZ_g))
+  data$pc <- pc$scores[,1]
+  #plot(data$timeSeconds, pc$scores[,1], type = "l") # , xlim = c(118, 127)
+  data$pc_roll_mean <- rollmean(data$pc, k = sampling_rate * window, fill = NA, align = "right")
+  # lines(data$timeSeconds, data$pc_roll_mean, col  = 2)
+  # lines(data$timeSeconds, data$rolling_var_Z, col = 3, lwd = 2)
+  #
+  # hist(data$rolling_var_Z, breaks = 1000, xlim = c(0,0.2))
+  # plot(data$timeSeconds, pc$scores[,3], type = "l", xlim = c(65,66))
+  # lines(data$timeSeconds, data$accZ_g, col = "green")
+  average_rolling_var_Z <- mean(data$rolling_var_Z, na.rm = TRUE)
 
-  average_rolling_VeDBA <- mean(data$rolling_VeDBA, na.rm = TRUE)
+  # plot(data$rolling_var_Z)
+  # abline(h = average_rolling_var_Z, col = 2)
 
   data <- data %>%
-    mutate(is_high_rolling_VeDBA = rolling_VeDBA > average_rolling_VeDBA)
+    mutate(is_flying = rolling_var_Z > 0.2)
 
   return(data)
 }
 
 # Function to plot data with small points highlighting high variability periods and raw VeDBA variability
 flea_plot <- function(data, label_high_variability = FALSE,
-                      plot_variance = FALSE, plot_vedba = FALSE) {
+                      plot_variance = FALSE, plot_vedba = FALSE,
+                      plot_pc = FALSE, plot_spectro = FALSE) {
   p <- plot_ly(data, x = ~timeSeconds) %>%
     add_lines(y = ~accX_g, name = "X-axis", line = list(color = 'dodgerblue')) %>%
     add_lines(y = ~rolling_mean_X, name = "Smoothed X-axis",
@@ -83,9 +97,23 @@ flea_plot <- function(data, label_high_variability = FALSE,
               line = list(color = 'lightcoral', dash = 'dash')) %>%
     add_lines(y = ~accZ_g, name = "Z-axis", line = list(color = 'mediumseagreen')) %>%
     add_lines(y = ~rolling_mean_Z, name = "Smoothed Z-axis",
-              line = list(color = 'lightgreen', dash = 'dash'))
+              line = list(color = 'lightgreen', dash = 'dash')) %>%
+    add_lines(y = ~rolling_var_Z, name = "Var Z-axis",
+              line = list(color = 'green', dash = 'dash'))
 
-  if(plot_vedba == TRUE){
+
+  if(plot_pc){
+    p <- p %>%
+      add_lines(y = ~pc, name = "PC1", line = list(color = 'darkred'))
+  }
+
+  if(plot_spectro){
+    p <- p %>%
+      add_trace(y = ~spectro_freq, name = 'Freq', type = 'scatter')
+      # add_lines(y = ~, name = "Freq", line = list(color = 'red'))
+  }
+
+  if(plot_vedba){
     p <- p %>%
       add_lines(y = ~ODBA, name = "ODBA", line = list(color = 'orchid')) %>%
       add_lines(y = ~VeDBA, name = "VeDBA", line = list(color = 'orange')) %>%
@@ -95,10 +123,10 @@ flea_plot <- function(data, label_high_variability = FALSE,
 
   # Optionally add smaller points for high variability periods
   if (label_high_variability) {
-    high_var_data <- data %>% filter(is_high_rolling_VeDBA == TRUE)
+    high_var_data <- data %>% filter(is_flying == TRUE)
 
     p <- p %>%
-      add_markers(data = high_var_data, y = ~VeDBA, name = "High Variability Points",
+      add_markers(data = high_var_data, y = ~VeDBA, name = "Flying",
                   marker = list(color = 'darkcyan', size = 6))
   }
 
@@ -124,7 +152,9 @@ flea_plot <- function(data, label_high_variability = FALSE,
   return(p)
 }
 
-split_by_true_groups <- function(df, flag_column, buffer = c(start=0,end=0)) {
+split_by_true_groups <- function(df, flag_column,
+                                 buffer = c(start=0,end=0),
+                                 min_duration = 2) {
 
   # Check if df is a data frame and flag_column exists
   if (!is.data.frame(df))
@@ -166,6 +196,7 @@ split_by_true_groups <- function(df, flag_column, buffer = c(start=0,end=0)) {
 
   result_list_buffered_and_filtered[sapply(result_list_buffered_and_filtered, is.null)] <- NULL
 
+  #TODO remove flights under the minimum duration
   return(result_list_buffered_and_filtered)
 
 }
@@ -173,8 +204,8 @@ split_by_true_groups <- function(df, flag_column, buffer = c(start=0,end=0)) {
 flea_plot_spectrogram <- function(data, sampling_rate = NULL, window = 1,
                                   var_threshold = 1,
                                   fmin = 5, fmax = 40, n_peaks = 3,
-                                  plot_spectro = TRUE, plot_density = TRUE,
-                                  overlay_dominant_freq = TRUE) {
+                                  plot_spectro = FALSE, plot_density = TRUE,
+                                  overlay_dominant_freq = TRUE, pc = TRUE) {
   if(is.null(sampling_rate)){
     sampling_rate = round(1/median(diff(data$timeSeconds)))
   }
@@ -190,6 +221,9 @@ flea_plot_spectrogram <- function(data, sampling_rate = NULL, window = 1,
   }
 
   wav <- Wave(left = data$accZ_mg, samp.rate = sampling_rate, bit = 8)
+  if(pc){
+    wav <- Wave(left = data$pc, samp.rate = sampling_rate, bit = 8)
+  }
   wav <- bwfilter(wav, from = fmin, to = fmax, f = sampling_rate)
 
   # Calculate the spectrogram using bioacoustics
@@ -198,46 +232,49 @@ flea_plot_spectrogram <- function(data, sampling_rate = NULL, window = 1,
   spec <- spectro(wave = wav, #FFT_size = sampling_rate * window,
                   #flim = c(fmin/1000, fmax/1000),
                   f = sampling_rate,
-                  plot = TRUE, scale = FALSE)
-  if(overlay_dominant_freq == TRUE){
+                  plot = plot_spectro, scale = FALSE)
+  if(overlay_dominant_freq){
     par(new=TRUE)
+  }
     dom_freq <- dfreq(wav, f=sampling_rate, clip = .3,
                       ovlp=25, threshold=5,
           bandpass = c(fmin, fmax),
-          type="l", col="red", lwd=2, plot = TRUE)
-  }
+          type="l", col="red", lwd=2, plot = overlay_dominant_freq)
+
   p <- ggspectro(wav, f = sampling_rate, flim = c(fmin/1000, fmax/1000))
   wb <- p + stat_contour(geom="polygon", aes(fill=..level..), bins=30) +
     scale_fill_continuous(name="Amplitude\n(dB)\n", limits=c(-30,0),
                           na.value="transparent", low="white", high="black") + theme_bw()
-  if(overlay_dominant_freq == TRUE){
+  if(overlay_dominant_freq){
     wb <- wb+geom_path(data = as.data.frame(dom_freq), aes(x,y,z = NULL), col = 2, lwd = 1)
   }
 
-  if(plot_spectro == TRUE){
+  if(plot_spectro){
     print(wb)
   }
 
   density <- meanspec(wav, f = sampling_rate, plot = FALSE)
 
-  peaks <- fpeaks(density, f = sampling_rate, nmax = n_peaks, plot = TRUE)
+  peaks <- fpeaks(density, f = sampling_rate, nmax = n_peaks, plot = plot_density)
 
   # Return the summary
-  return(list(dom_freq, density, peaks))
+  return(list(wb, dom_freq, density, peaks))
 }
 
-
-# density <- s[[2]]
+# density <- freq[[3]]
 # threshold <- 0.8
-get_peak_range <- function(density, threshold = 0.8, smooth = TRUE, smooth_pts = 200){
+get_peak_range <- function(density, threshold = 0.8,
+                           smooth = TRUE, spar = 0.2, plot_smooth = TRUE){
   idx <- which(density[,2] > threshold)
   peak = density[idx,]
   if(smooth == TRUE){
-    sm <- spline(x = density[,1], y = density[,2], n = smooth_pts) %>% as.data.frame()
-    plot(density, type = "l")
-    lines(sm, col = 2, lwd = 1)
+    sm <- smooth.spline(x = density[,1], y = density[,2], spar = 0.2)
+    if(plot_smooth){
+      plot(density, type = "l")
+      lines(sm, col = 2, lwd = 1)
+    }
     idx <- which(sm$y > threshold)
-    peak = sm[idx,]
+    peak = data.frame(x = sm$x[idx], y = sm$y[idx])
   }
   peak_summary <- summary(peak$x)
   return(list(peak, peak_summary))
