@@ -99,7 +99,8 @@ flea_preprocess <- function(data, window = 0.5) {
   # Determine if flying based on rolling variance of Z-axis acceleration
   average_rolling_var_Z <- mean(data$rolling_var_Z, na.rm = TRUE)
   data <- data %>%
-    mutate(is_flying = rolling_var_Z > 0.2)
+    # mutate(is_flying = rolling_var_Z > 0.2)
+    mutate(is_flying = rolling_mean_PC > 0)
 
   return(data)
 }
@@ -111,6 +112,10 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
 
   # Prepare high_var_data (empty if label_high_variability is FALSE)
   high_var_data <- data %>% filter(is_flying == TRUE)
+
+  if(is.null(data$spectro)){
+    data$spectro <- NA
+  }
 
   # Add all traces with initial visibility based on parameters
   p <- plot_ly(data, x = ~timeSeconds) %>%
@@ -233,7 +238,8 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
 
 split_by_true_groups <- function(df, flag_column,
                                  buffer = c(start=0,end=0),
-                                 min_duration = 2) {
+                                 min_duration = 2,
+                                 sampling_rate = 105) {
 
   # Check if df is a data frame and flag_column exists
   if (!is.data.frame(df))
@@ -263,22 +269,25 @@ split_by_true_groups <- function(df, flag_column,
   # Apply buffer to each group if specified and filter out small groups
   result_list_buffered_and_filtered = lapply(result_list, function(x){
     n_rows = nrow(x)
-    if(n_rows > (sum(buffer)*2)){
+
+    # Check if group duration meets the minimum requirement
+    if(n_rows >= (min_duration * sampling_rate) + sum(buffer)) {
       start_idx = max(1 + buffer["start"],1)
       end_idx   = min(n_rows - buffer["end"], n_rows)
 
       buffered_x = x[start_idx:end_idx ,]
 
       return(buffered_x)
+    } else {
+      return(NULL)
     }
   })
 
   result_list_buffered_and_filtered[sapply(result_list_buffered_and_filtered, is.null)] <- NULL
 
-  #TODO remove flights under the minimum duration
   return(result_list_buffered_and_filtered)
-
 }
+
 
 flea_plot_spectrogram <- function(data, sampling_rate = NULL, window = 1,
                                   var_threshold = 1,
