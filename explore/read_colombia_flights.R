@@ -27,6 +27,8 @@ for(file_path in files){
     processed_data <- flea_preprocess(data = flea_data$data,
                                       window = 0.5)
     duration_flea = nrow(processed_data)/sampling_rate
+    split <- split_by_true_groups(processed_data, flag_column = "is_flying")
+
     freq <- flea_plot_spectrogram(data = processed_data, #[complete.cases(processed_data$timeMilliseconds),],
                                   sampling_rate = sampling_rate, fmin = 5, fmax = 40, window = 2,
                                   plot_spectro = FALSE, plot_density = FALSE,
@@ -40,8 +42,7 @@ for(file_path in files){
     }
 
 
-    p <- flea_plot(processed_data, label_high_variability = TRUE,
-                   plot_variance = FALSE, plot_spectro = TRUE)
+    p <- flea_plot(processed_data)
     p
 
     dom_freq_length <- freq[[2]][,2] %>% na.omit() %>% length()

@@ -99,7 +99,8 @@ flea_preprocess <- function(data, window = 0.5) {
   # Determine if flying based on rolling variance of Z-axis acceleration
   average_rolling_var_Z <- mean(data$rolling_var_Z, na.rm = TRUE)
   data <- data %>%
-    mutate(is_flying = rolling_var_Z > 0.2)
+    # mutate(is_flying = rolling_var_Z > 0.2)
+    mutate(is_flying = rolling_mean_PC > 0)
 
   return(data)
 }
@@ -112,47 +113,52 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
   # Prepare high_var_data (empty if label_high_variability is FALSE)
   high_var_data <- data %>% filter(is_flying == TRUE)
 
+  if(is.null(data$spectro)){
+    data$spectro <- NA
+  }
+
   # Add all traces with initial visibility based on parameters
   p <- plot_ly(data, x = ~timeSeconds) %>%
-    # Original acceleration signals
+    # Original acceleration signals # 0-5
     add_lines(y = ~accX_g, name = "X-axis", line = list(color = 'dodgerblue'), visible = TRUE) %>%
     add_lines(y = ~rolling_mean_X, name = "Smoothed X", line = list(color = 'lightblue', dash = 'dash'), visible = TRUE) %>%
     add_lines(y = ~accY_g, name = "Y-axis", line = list(color = 'salmon'), visible = TRUE) %>%
     add_lines(y = ~rolling_mean_Y, name = "Smoothed Y", line = list(color = 'lightcoral', dash = 'dash'), visible = TRUE) %>%
     add_lines(y = ~accZ_g, name = "Z-axis", line = list(color = 'mediumseagreen'), visible = TRUE) %>%
     add_lines(y = ~rolling_mean_Z, name = "Smoothed Z", line = list(color = 'lightgreen', dash = 'dash'), visible = TRUE) %>%
-    # Variance traces
+    # Variance traces 6-8
     add_lines(y = ~rolling_var_X, name = "Variance X", line = list(color = 'dodgerblue', dash = 'dot'), visible = plot_variance) %>%
     add_lines(y = ~rolling_var_Y, name = "Variance Y", line = list(color = 'salmon', dash = 'dot'), visible = plot_variance) %>%
     add_lines(y = ~rolling_var_Z, name = "Variance Z", line = list(color = 'mediumseagreen', dash = 'dot'), visible = plot_variance) %>%
-    # PC1 trace
-    add_lines(y = ~pc, name = "PC1", line = list(color = 'darkred'), visible = plot_pc) %>%
-    add_lines(y = ~rolling_mean_PC, name = "Smoothed PC1", line = list(color = 'lightblue', dash = 'dash'), visible = plot_pc) %>%
+    # PC1 trace # 9-11
+    add_lines(y = ~pc, name = "PC1", line = list(color = 'lightblue'), visible = plot_pc) %>%
+    add_lines(y = ~rolling_mean_PC, name = "Smoothed PC1", line = list(color = 'darkred', dash = 'dash'), visible = plot_pc) %>%
     add_lines(y = ~rolling_var_PC, name = "Variance PC1", line = list(color = 'mediumseagreen', dash = 'dot'), visible = plot_pc) %>%
-    # Spectrogram frequency trace
+    # Spectrogram frequency trace # 12
     add_trace(y = ~spectro_freq, name = 'Spectro Freq', type = 'scatter', visible = plot_spectro) %>%
-    # VeDBA/ODBA traces
+    # VeDBA/ODBA traces # 13-16
     add_lines(y = ~ODBA, name = "ODBA", line = list(color = 'orchid'), visible = plot_vedba) %>%
     add_lines(y = ~VeDBA, name = "VeDBA", line = list(color = 'orange'), visible = plot_vedba) %>%
-    add_lines(y = ~rolling_var_VeDBA, name = "VeDBA Var", line = list(color = 'purple', dash = 'dash'), visible = plot_vedba) %>%
-    # High variability markers
+    add_lines(y = ~rolling_VeDBA, name = "Smoothed VeDBA", line = list(color = 'olive', dash = 'dash'), visible = plot_vedba) %>%
+    add_lines(y = ~rolling_var_VeDBA, name = "VeDBA Var", line = list(color = 'purple', dash = 'dot'), visible = plot_vedba) %>%
+    # High variability markers # 17
     add_markers(data = high_var_data, y = ~VeDBA, name = "Flying",
                 marker = list(color = 'darkcyan', size = 6), visible = plot_flying)
 
   # Define trace groups and their indices (0-based)
   trace_groups <- list(
-    "All" = 0:14,
+    "All" = 0:17,
     "Original" = c(0, 2, 4),        # X, Y, Z axes
     "Smoothed" = c(1, 3, 5),        # Smoothed X, Y, Z
     "Variance" = c(6, 7, 8),        # Variance X, Y, Z
-    "VeDBA/ODBA" = c(13, 14,15),    # ODBA, VeDBA, VeDBA Var
-    "PC1" = c(9,10,11),             # PC1, smoothed PC1, var PC1
+    "VeDBA/ODBA" = c(13,14,15,16), # ODBA, VeDBA, Smoothed VeDBA, VeDBA Var
+    "PC1" = c(9,10,11),            # PC1, smoothed PC1, var PC1
     "Spectro" = 12,                 # Spectro Freq
-    "HighVar" = 16                  # Flying markers
+    "Flying" = 17                   # Flying markers
   )
 
   # Function to generate visibility list for a group
-  create_visible <- function(group_indices, total = 15) {
+  create_visible <- function(group_indices, total = 18) {
     visible <- rep(FALSE, total)
     visible[group_indices + 1] <- TRUE  # Convert to 1-based index
     return(visible)
@@ -188,7 +194,7 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
     list(
       label = "PC1",
       method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["PrinComp"]])))
+      args = list(list(visible = create_visible(trace_groups[["PC1"]])))
     ),
     list(
       label = "Spectro",
@@ -196,7 +202,7 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
       args = list(list(visible = create_visible(trace_groups[["Spectro"]])))
     ),
     list(
-      label = "HighVar",
+      label = "Flying",
       method = "restyle",
       args = list(list(visible = create_visible(trace_groups[["Flying"]])))
     )
@@ -228,9 +234,12 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
 }
 
 
+
+
 split_by_true_groups <- function(df, flag_column,
                                  buffer = c(start=0,end=0),
-                                 min_duration = 2) {
+                                 min_duration = 2,
+                                 sampling_rate = 105) {
 
   # Check if df is a data frame and flag_column exists
   if (!is.data.frame(df))
@@ -260,22 +269,25 @@ split_by_true_groups <- function(df, flag_column,
   # Apply buffer to each group if specified and filter out small groups
   result_list_buffered_and_filtered = lapply(result_list, function(x){
     n_rows = nrow(x)
-    if(n_rows > (sum(buffer)*2)){
+
+    # Check if group duration meets the minimum requirement
+    if(n_rows >= (min_duration * sampling_rate) + sum(buffer)) {
       start_idx = max(1 + buffer["start"],1)
       end_idx   = min(n_rows - buffer["end"], n_rows)
 
       buffered_x = x[start_idx:end_idx ,]
 
       return(buffered_x)
+    } else {
+      return(NULL)
     }
   })
 
   result_list_buffered_and_filtered[sapply(result_list_buffered_and_filtered, is.null)] <- NULL
 
-  #TODO remove flights under the minimum duration
   return(result_list_buffered_and_filtered)
-
 }
+
 
 flea_plot_spectrogram <- function(data, sampling_rate = NULL, window = 1,
                                   var_threshold = 1,
