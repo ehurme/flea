@@ -39,14 +39,21 @@ read_flea_tag_data <- function(file_path) {
 }
 
 # Function to preprocess the data
-flea_preprocess <- function(data, window = 0.5) {
+flea_preprocess <- function(data,
+                            sampling_rate = 105,
+                            window = 0.5,
+                            flying_column = "rolling_mean_PC",
+                            flying_threshold = 0) {
   # Check if data is not empty
   if (nrow(data) == 0) {
     stop("Input data is empty.")
   }
 
   # Calculate sampling rate
-  sampling_rate <- round(1 / mean(diff(data$timeMilliseconds / 1000), na.rm = TRUE))
+  if(is.null(sampling_rate)){
+    sampling_rate <- round(1 / mean(diff(data$timeMilliseconds / 1000), na.rm = TRUE))
+  }
+
 
   # Convert acceleration to g and calculate time in seconds
   data <- data %>%
@@ -96,11 +103,18 @@ flea_preprocess <- function(data, window = 0.5) {
       rolling_var_PC = rollapply(pc, width = sampling_rate * window, FUN = var, fill = NA, align = "right")
     )
 
-  # Determine if flying based on rolling variance of Z-axis acceleration
-  average_rolling_var_Z <- mean(data$rolling_var_Z, na.rm = TRUE)
+  # Validate flying detection parameters
+  if(!flying_column %in% names(data)) {
+    stop("Column '", flying_column, "' not found in data. Available columns: ",
+         paste(names(data), collapse = ", "))
+  }
+  if(!is.numeric(flying_threshold) || length(flying_threshold) != 1) {
+    stop("flying_threshold must be a single numeric value")
+  }
+
+  # Determine if flying based on specified column and threshold
   data <- data %>%
-    # mutate(is_flying = rolling_var_Z > 0.2)
-    mutate(is_flying = rolling_mean_PC > 0)
+    mutate(is_flying = !!sym(flying_column) > flying_threshold)
 
   return(data)
 }

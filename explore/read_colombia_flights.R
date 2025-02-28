@@ -17,7 +17,7 @@ df <- read_xlsx("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/Finca_Flights_202
 files <- list.files(path = "../../../Dropbox/MPI/Wingbeat/Colombia25/Data/",
            pattern = "*txt", recursive = TRUE, full.names = TRUE)
 files <- files[grepl(x = files, pattern = "Trial")]
-file_path = files[10]
+file_path = files[51]
 
 wb <- data.frame()
 plot(0,0, xlim = c(0.005, 0.020), ylim = c(0.8,1), xlab = "Frequency", ylab = "Amplitude")
@@ -27,7 +27,7 @@ for(file_path in files){
     processed_data <- flea_preprocess(data = flea_data$data,
                                       window = 0.5)
     duration_flea = nrow(processed_data)/sampling_rate
-    split <- split_by_true_groups(processed_data, flag_column = "is_flying")
+    # split <- split_by_true_groups(processed_data, flag_column = "is_flying")
 
     freq <- flea_plot_spectrogram(data = processed_data, #[complete.cases(processed_data$timeMilliseconds),],
                                   sampling_rate = sampling_rate, fmin = 5, fmax = 40, window = 2,
