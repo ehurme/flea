@@ -64,33 +64,55 @@ flea_preprocess <- function(data,
       accZ_g = accZ_mg / 1000
     )
 
-  # Calculate dynamic acceleration components
-  data <- data %>%
-    mutate(
-      accX_dyn = accX_g - mean(accX_g, na.rm = TRUE),
-      accY_dyn = accY_g - mean(accY_g, na.rm = TRUE),
-      accZ_dyn = accZ_g - mean(accZ_g, na.rm = TRUE)
-    )
+  data$accX_dyn <- NA
+  data$accY_dyn <- NA
+  data$accZ_dyn <- NA
+  data$VeDBA <- NA
+  data$ODBA <- NA
 
-  # Calculate VeDBA and ODBA
-  data <- data %>%
-    mutate(
-      VeDBA = sqrt(accX_dyn^2 + accY_dyn^2 + accZ_dyn^2),
-      ODBA = abs(accX_dyn) + abs(accY_dyn) + abs(accZ_dyn)
-    )
+  if(sampling_rate > 50){
+    # Calculate dynamic acceleration components
+    data <- data %>%
+      mutate(
+        accX_dyn = accX_g - mean(accX_g, na.rm = TRUE),
+        accY_dyn = accY_g - mean(accY_g, na.rm = TRUE),
+        accZ_dyn = accZ_g - mean(accZ_g, na.rm = TRUE)
+      )
+
+    # Calculate VeDBA and ODBA
+    data <- data %>%
+      mutate(
+        VeDBA = sqrt(accX_dyn^2 + accY_dyn^2 + accZ_dyn^2),
+        ODBA = abs(accX_dyn) + abs(accY_dyn) + abs(accZ_dyn)
+      )
+  }
 
   # Calculate rolling metrics
   data <- data %>%
     mutate(
-      rolling_mean_X = rollmean(accX_g, k = sampling_rate * window, fill = NA, align = "right"),
-      rolling_mean_Y = rollmean(accY_g, k = sampling_rate * window, fill = NA, align = "right"),
-      rolling_mean_Z = rollmean(accZ_g, k = sampling_rate * window, fill = NA, align = "right"),
-      rolling_VeDBA = rollmean(VeDBA, k = sampling_rate * window, fill = NA, align = "right"),
-      rolling_var_X = rollapply(accX_g, width = sampling_rate * window, FUN = var, fill = NA, align = "right"),
-      rolling_var_Y = rollapply(accY_g, width = sampling_rate * window, FUN = var, fill = NA, align = "right"),
-      rolling_var_Z = rollapply(accZ_g, width = sampling_rate * window, FUN = var, fill = NA, align = "right"),
-      rolling_var_VeDBA = rollapply(VeDBA, width = sampling_rate * window, FUN = var, fill = NA, align = "right")
-    )
+      rolling_mean_X = rollmean(accX_g, k = round(sampling_rate * window, 0),
+                                fill = NA, align = "right"),
+      rolling_mean_Y = rollmean(accY_g, k = round(sampling_rate * window, 0),
+                                fill = NA, align = "right"),
+      rolling_mean_Z = rollmean(accZ_g, k = round(sampling_rate * window, 0),
+                                fill = NA, align = "right"),
+      rolling_var_X = rollapply(accX_g, width = round(sampling_rate * window, 0),
+                                FUN = var, fill = NA, align = "right"),
+      rolling_var_Y = rollapply(accY_g, width = round(sampling_rate * window, 0),
+                                FUN = var, fill = NA, align = "right"),
+      rolling_var_Z = rollapply(accZ_g, width = round(sampling_rate * window, 0),
+                                FUN = var, fill = NA, align = "right"))
+  data$rolling_VeDBA <- NA
+  data$rolling_var_VeDBA <- NA
+  if(sampling_rate > 50){
+    data <- data %>%
+      mutate(
+        rolling_VeDBA = rollmean(VeDBA, k = round(sampling_rate * window, 0),
+                                 fill = NA, align = "right"),
+        rolling_var_VeDBA = rollapply(VeDBA, width = round(sampling_rate * window, 0),
+                                      FUN = var, fill = NA, align = "right")
+      )
+  }
 
   # Calculate first principal component
   pc <- princomp(data %>% select(accX_g, accY_g, accZ_g))
@@ -113,8 +135,11 @@ flea_preprocess <- function(data,
   }
 
   # Determine if flying based on specified column and threshold
-  data <- data %>%
-    mutate(is_flying = !!sym(flying_column) > flying_threshold)
+  data$is_flying <- NA
+  if(!is.null(flying_column)){
+    data <- data %>%
+      mutate(is_flying = !!sym(flying_column) > flying_threshold)
+  }
 
   return(data)
 }
