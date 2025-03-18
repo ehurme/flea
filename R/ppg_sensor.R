@@ -5,6 +5,7 @@ library(tidyverse)
 
 ######## read data
 ppg <- fread("C:/Users/ehumre/Documents/GitHub/PPG_Sensor/ppg_data.csv")
+ppg <- fread("C:/Users/ehumre/Dropbox/MPI/Wingbeat/Colombia25/PPG/20250226/ppg_data_hummingbird_trial.csv")
 # Be sure to move this file to somewhere you want to save it.
 # It will be erased if you update the github repository
 

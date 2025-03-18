@@ -11,14 +11,21 @@ library(plotly)
 source("./R/flea_functions.R")
 
 # load flea tag data
-file_path <- "C:/Users/Ecophysics lab/Downloads/Fleatag Programming/WildLab Serial Monitor/20250226_163947_FleaTagData_HB_2603_Tag304C.txt"
+file_path <- "C:/Users/ehumre/Downloads/20250228_102905_Anthracathorax-nigricollis_045Hz_3054_Trial023.txt"
+file_path <- "C:/Users/ehumre/Downloads/20250226_163947_Saucerottia-cyanifrons_105HzCont_300B_Trial019.txt"
+file_path <- "C:/Users/ehumre/Downloads/20250222_141446_Chalyburra_buffonii_210HzCont_3044_Trial011.txt"
+file_path <- "C:/Users/ehumre/Downloads/20250224_162700_Colibri-cyanotus_210HzCont_3054_Trial013.txt"
+file_path <- "C:/Users/ehumre/Downloads/20250220_114529_Anthracothorax-nigricollis_210HzCont_300A_Trial005.txt"
 
 flea_data <- read_flea_tag_data(file_path)
 sampling_rate <- flea_data$metadata$AccHz %>% as.numeric()
 
 # add VeDBA to data
 processed_data <- flea_preprocess(data = flea_data$data,
-                                  window = 0.5)
+                                  sampling_rate = sampling_rate,
+                                  window = 0.5,
+                                  flying_column = "rolling_var_PC",
+                                  flying_threshold  = 0.1)
 # summary(processed_data)
 
 # plot data

@@ -41,7 +41,7 @@ read_flea_tag_data <- function(file_path) {
 # Function to preprocess the data
 flea_preprocess <- function(data,
                             sampling_rate = 105,
-                            window = 0.5,
+                            window = 1,
                             flying_column = "rolling_mean_PC",
                             flying_threshold = 0) {
   # Check if data is not empty
@@ -181,7 +181,7 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
     add_lines(y = ~rolling_VeDBA, name = "Smoothed VeDBA", line = list(color = 'olive', dash = 'dash'), visible = plot_vedba) %>%
     add_lines(y = ~rolling_var_VeDBA, name = "VeDBA Var", line = list(color = 'purple', dash = 'dot'), visible = plot_vedba) %>%
     # High variability markers # 17
-    add_markers(data = high_var_data, y = ~VeDBA, name = "Flying",
+    add_markers(data = high_var_data, y = ~rolling_var_PC, name = "Flying",
                 marker = list(color = 'darkcyan', size = 6), visible = plot_flying)
 
   # Define trace groups and their indices (0-based)
