@@ -51,30 +51,72 @@ transform_trex_pose_data <- function(df, camera_name, frame_diff = 0, individual
 }
 
 # Example usage:
-df <- fread("E:/Finca_Flights/20250226/finca6/data/finca6_20250226_C0005_fish0.csv")
-df <- df[,2:ncol(df)]
 
-finca1 <- transform_pose_data(df = fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0005_fish0.csv"),
-                              camera_name = "finca1", frame_diff = 0)
-finca2 <- transform_pose_data(df = fread("E:/Finca_Flights/20250226/finca2/data/finca2_20250226_C0005_fish0.csv"),
-                              camera_name = "finca2", frame_diff = 0)
-finca3 <- transform_pose_data(df = fread("E:/Finca_Flights/20250226/finca3/data/finca3_20250226_C0005_fish0.csv"),
-                              camera_name = "finca3", frame_diff = 0)
-finca4 <- transform_pose_data(df = fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_fish0.csv"),
-                              camera_name = "finca4", frame_diff = 0)
-finca5 <- transform_pose_data(df = fread("E:/Finca_Flights/20250226/finca5/data/finca5_20250226_C0005_fish0.csv"),
-                              camera_name = "finca5", frame_diff = 0)
-finca6 <- transform_pose_data(df = fread("E:/Finca_Flights/20250226/finca6/data/finca6_20250226_C0005_fish0.csv"),
-                              camera_name = "finca6", frame_diff = 0)
+finca1 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0005_fish0.csv"),
+                                   camera_name = "finca1", frame_diff = 0, individual_id = "bat0"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0005_fish1.csv"),
+                                   camera_name = "finca1", frame_diff = 0, individual_id = "bat1"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0005_fish2.csv"),
+                                   camera_name = "finca1", frame_diff = 0, individual_id = "bat2"))
+
+finca2 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca2/data/finca2_20250226_C0005_fish0.csv"),
+                                         camera_name = "finca2", frame_diff = 0, individual_id = "bat0"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca2/data/finca2_20250226_C0005_fish1.csv"),
+                                         camera_name = "finca2", frame_diff = 0, individual_id = "bat1"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca2/data/finca2_20250226_C0005_fish2.csv"),
+                                         camera_name = "finca2", frame_diff = 0, individual_id = "bat2"))
+
+finca3 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca3/data/finca3_20250226_C0005_fish0.csv"),
+                                         camera_name = "finca3", frame_diff = 0, individual_id = "bat0"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca3/data/finca3_20250226_C0005_fish1.csv"),
+                                         camera_name = "finca3", frame_diff = 0, individual_id = "bat1"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca3/data/finca3_20250226_C0005_fish2.csv"),
+                                         camera_name = "finca3", frame_diff = 0, individual_id = "bat2"))
+
+finca4 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_fish0.csv"),
+                                         camera_name = "finca4", frame_diff = 0, individual_id = "bat0"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_fish1.csv"),
+                                         camera_name = "finca4", frame_diff = 0, individual_id = "bat1"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_fish2.csv"),
+                                         camera_name = "finca4", frame_diff = 0, individual_id = "bat2"))
+
+finca5 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca5/data/finca5_20250226_C0005_fish0.csv"),
+                                         camera_name = "finca5", frame_diff = 0, individual_id = "bat0"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca5/data/finca5_20250226_C0005_fish1.csv"),
+                                         camera_name = "finca5", frame_diff = 0, individual_id = "bat1"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca5/data/finca5_20250226_C0005_fish2.csv"),
+                                         camera_name = "finca5", frame_diff = 0, individual_id = "bat2"))
+
+finca6 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca6/data/finca6_20250226_C0005_fish0.csv"),
+                                         camera_name = "finca6", frame_diff = 0, individual_id = "bat0"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca6/data/finca6_20250226_C0005_fish1.csv"),
+                                         camera_name = "finca6", frame_diff = 0, individual_id = "bat1"),
+                transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca6/data/finca6_20250226_C0005_fish2.csv"),
+                                         camera_name = "finca6", frame_diff = 0, individual_id = "bat2"))
 
 rbind(finca1, finca2, finca3, finca4, finca5, finca6) -> all_finca
+bat0 <- all_finca[grepl(all_finca$ID, pattern = "bat-0"),]
 
 # Save the transformed data to a CSV file
 write.csv(all_finca, "../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/trex_20250226_C0005_all_cameras.csv", row.names = FALSE)
+write.csv(all_finca, "../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/trex_20250226_C0005_all_cameras_bat0.csv", row.names = FALSE)
 
 all_finca$Cam %>% table()
-ggplot(all_finca, aes(x = x, y = y, color = ID)) +
+ggplot(all_finca %>% filter(Frame < 1000),
+       aes(x = x, y = y, color = ID)) +
   geom_point() +
   facet_wrap(~ Cam) +
   theme_minimal() +
-  labs(title = "Pose Data from Multiple Cameras", x = "X Coordinate", y = "Y Coordinate")
+  labs(title = "Pose Data from Multiple Cameras",
+       x = "X Coordinate", y = "Y Coordinate")
+
+df0 <- fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_tracks/data/finca4_20250226_C0005_fish0.csv")
+df1 <- fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_tracks/data/finca4_20250226_C0005_fish1.csv")
+df2 <- fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_tracks/data/finca4_20250226_C0005_fish2.csv")
+
+plot(df0$poseX0, df0$poseY0, type = "l")
+plot(df1$poseX0, df1$poseY0, type = "l")
+plot(df2$poseX0, df2$poseY0, type = "l")
+
+plot(df$`X#wcentroid (cm)`, df$poseX0)
+
