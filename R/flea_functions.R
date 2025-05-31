@@ -68,7 +68,11 @@ flea_preprocess <- function(data,
   data$accY_dyn <- NA
   data$accZ_dyn <- NA
   data$VeDBA <- NA
+  data$VeSBA <- NA
   data$ODBA <- NA
+  data$pitch <- NA
+  data$roll <- NA
+  data$yaw <- NA
 
   if(sampling_rate > 50){
     # Calculate dynamic acceleration components
