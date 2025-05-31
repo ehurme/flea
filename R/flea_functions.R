@@ -40,10 +40,10 @@ read_flea_tag_data <- function(file_path) {
 
 # Function to preprocess the data
 flea_preprocess <- function(data,
-                            sampling_rate = 105,
-                            window = 1,
-                            flying_column = "rolling_mean_PC",
-                            flying_threshold = 0) {
+                            sampling_rate = 210,
+                            window = 0.5,
+                            flying_column = "rolling_var_PC",
+                            flying_threshold = 3.5) {
   # Check if data is not empty
   if (nrow(data) == 0) {
     stop("Input data is empty.")
@@ -119,15 +119,25 @@ flea_preprocess <- function(data,
   }
 
   # Calculate first principal component
-  pc <- princomp(data %>% select(accX_g, accY_g, accZ_g))
-  data$pc <- pc$scores[,1]
+  data$pc <- NA
+  try({
+    idx <- which(is.na(data$accX_g))
+    if(length(idx) > 0){
+      pc <- princomp(data[-idx,] %>% select(accX_g, accY_g, accZ_g))
+      data$pc[-idx] <- pc$scores[,1]
+    }
+    if(length(idx) == 0){
+      pc <- princomp(data %>% select(accX_g, accY_g, accZ_g))
+      data$pc <- pc$scores[,1]
+    }
 
-  # Calculate rolling metrics for PC
-  data <- data %>%
-    mutate(
-      rolling_mean_PC = rollmean(pc, k = sampling_rate * window, fill = NA, align = "right"),
-      rolling_var_PC = rollapply(pc, width = sampling_rate * window, FUN = var, fill = NA, align = "right")
-    )
+    # Calculate rolling metrics for PC
+    data <- data %>%
+      mutate(
+        rolling_mean_PC = rollmean(pc, k = sampling_rate * window, fill = NA, align = "right"),
+        rolling_var_PC = rollapply(pc, width = sampling_rate * window, FUN = var, fill = NA, align = "right")
+      )
+  })
 
   # Validate flying detection parameters
   if(!flying_column %in% names(data)) {

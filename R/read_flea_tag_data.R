@@ -1,31 +1,54 @@
 read_flea_tag_data <- function(file_path) {
-  # Open the file
-  lines <- readLines(file_path)
-
-  # Find the index of the line containing "Delete memory by pressing button for 8"
-  stop_idx <- grep("Delete memory by pressing button for 8", lines)[1]
-
-  # Split metadata (everything before the line starting with "lineCnt")
-  metadata_end_idx <- (grep("^lineCnt", lines) - 1)[1]
-  metadata_lines <- lines[1:metadata_end_idx]
-
-  # Extract the metadata into a list
-  metadata <- list()
-  for (line in metadata_lines) {
-    if (grepl(":", line)) {
-      split_line <- strsplit(line, ":")[[1]]
-      key <- trimws(split_line[1])
-      value <- trimws(split_line[2])
-      metadata[[key]] <- value
-    }
+  csv <- grepl(pattern = "csv", x = file_path)
+  if(csv){
+    metadata <- NULL
+    data = read.csv(file_path)
   }
 
-  # Extract the data part starting from the lineCnt header until the stop point
-  data_lines <- lines[metadata_end_idx + 1:(stop_idx - metadata_end_idx - 1)]
+  if(!csv){
+    # Open the file
+    lines <- readLines(file_path)
 
-  # Read the data into a data frame
-  data <- read.csv(text = paste(data_lines, collapse = "\n"))
+    # Find the index of the line containing "Delete memory by pressing button for 8"
+    stop_idx <- grep("Delete memory by pressing button for 8", lines)[1]
 
+    # Extract the metadata into a list
+    metadata <- list()
+
+    # Split metadata (everything before the line starting with "lineCnt")
+    metadata_end_idx <- (grep("^lineCnt", lines) - 1)[1]
+    metadata_lines <- NULL
+
+    if(!is.na(metadata_end_idx)){
+      metadata_lines <- lines[1:metadata_end_idx]
+      for (line in metadata_lines) {
+        if (grepl(":", line)) {
+          split_line <- strsplit(line, ":")[[1]]
+          key <- trimws(split_line[1])
+          value <- trimws(split_line[2])
+          metadata[[key]] <- value
+        }
+      }
+    }
+
+    # Extract the data part starting from the lineCnt header until the stop point
+    if(is.na(metadata_end_idx)) metadata_end_idx <- 0
+    data_lines <- lines[metadata_end_idx + 1:(stop_idx - metadata_end_idx - 1)]
+
+    # Read the data into a data frame
+    if(any(grepl("lineCnt", data_lines))){
+      data <- read.csv(text = paste(data_lines, collapse = "\n"))
+    }
+    if(!any(grepl("lineCnt", data_lines))){
+      data <- read.csv(text = paste(data_lines, collapse = "\n"), header = FALSE)
+      names(data) <- c('lineCnt','timeMilliseconds','burstCount',
+                       'accX_mg','accY_mg','accZ_mg',
+                       'ColorSensRed_cnt',
+                       'ColorSensGreen_cnt',
+                       'ColorSensBlue_cnt',
+                       'ColorSensIR_cnt')
+    }
+  }
   # Return both metadata and data
   return(list(metadata = metadata, data = data))
 }
