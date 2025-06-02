@@ -128,10 +128,10 @@ process_audiomoth_segment <- function(directory, file,
   }
 }
 
-directory <- "E:/Bat_acoustic_recordings_CICG/2025-02-21/Dermanura bogotensis/AM_9_back/"
+directory <- "E:/Bat_acoustic_recordings_CICG/2025-02-20/Dermanura bogotensis/AM_9_back/"
 # "D:/Music/Bat_recordings/2025-02-20/Dermanura bogotensis/AM_13_front/"
 filenames <- list.files(directory,full.names = FALSE)
-file <- filenames[2]
+file <- filenames[5]
 
 file
 call_parameters <- process_audiomoth_segment(directory, file,
@@ -147,7 +147,9 @@ call_parameters <- process_audiomoth_segment(directory, file,
 
 call_parameters[[1]] %>% summary()
 plot(call_parameters[[1]]$duration, call_parameters[[1]]$peak_amp)
-ggplot(call_parameters, aes(duration, peak_freq, size = peak_amp))+
+ggplot(call_parameters[[1]], aes(duration, peak_freq, size = peak_amp))+
+  geom_point()
+ggplot(call_parameters[[2]], aes(duration, peak_freq, size = peak_amp))+
   geom_point()
 
 
