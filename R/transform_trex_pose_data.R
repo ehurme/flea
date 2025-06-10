@@ -110,11 +110,36 @@ ggplot(all_finca %>% filter(Frame < 1000),
   labs(title = "Pose Data from Multiple Cameras",
        x = "X Coordinate", y = "Y Coordinate")
 
+
+
 df0 <- fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_tracks/data/finca4_20250226_C0005_fish0.csv")
 df1 <- fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_tracks/data/finca4_20250226_C0005_fish1.csv")
 df2 <- fread("E:/Finca_Flights/20250226/finca4/data/finca4_20250226_C0005_tracks/data/finca4_20250226_C0005_fish2.csv")
 
-plot(df0$poseX0, df0$poseY0, type = "l")
+df0 <- fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0012_fish0.csv")
+df0 <- fread("E:/Finca_Flights/20250226/finca2/data/finca2_20250226_C0012_fish0.csv")
+df0 <- df0[,2:ncol(df0)]
+
+with(df6, plot(poseX0, poseY0, type = "l", col = rgb(0,0,0,1)))
+
+ggplot(data = df0 %>% filter(poseX0 < 2000),
+       aes(x = poseX0, y = poseY0, col = frame)) +
+  #geom_path(alpha = 0.1) +
+  geom_point() +
+  theme_minimal()+
+  xlim(c(0,1920))+ylim(c(0,1080))
+
+library(gganimate)
+# animate plot by frame
+ggplot(data = df0 %>% filter(poseX0 < 2000),
+       aes(x = poseX0, y = poseY0, col = frame)) +
+  geom_point() +
+  geom_path()+
+  theme_minimal()+
+  xlim(c(0,1920))+ylim(c(0,1080))+
+  transition_reveal(frame, keep_last = TRUE)
+
+
 plot(df1$poseX0, df1$poseY0, type = "l")
 plot(df2$poseX0, df2$poseY0, type = "l")
 

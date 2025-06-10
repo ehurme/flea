@@ -54,6 +54,8 @@ read_flea_tag_data <- function(file_path) {
 }
 
 # Example usage
+file_path <- "../../../Dropbox/MPI/Wingbeat/Flanders25/Data/202505_FleaTagging_Flanders/20250522_FleaTagging_Flanders/20250522_Bat5_Trial2_3037.txt"
+
 file_path <- "../../../Dropbox/MPI/Wingbeat/color_calibration/20241011_Mathias/tag3025_trial2_20241011_142625_FleaTagData.txt"
 
 
@@ -70,9 +72,11 @@ file_path <- "../../../ownCloud/FleaTagColorTest/20241011/Data/Tag_data/tag302D_
 ## bad recordings
 
 flea_data <- read_flea_tag_data(file_path)
-processed_data <- flea_preprocess(data = flea_data$data,
-                                  window = 2)
-p <- flea_plot(processed_data, label_high_variability = FALSE, plot_variance = FALSE)
+processed_data <- flea_preprocess(data = flea_data$data, window = 1,
+                                  flying_column = "rolling_var_VeDBA",
+                                  flying_threshold = 0.5)
+processed_data$spectro_freq <- NA
+p <- flea_plot(processed_data, ) #, label_high_variability = FALSE, plot_variance = FALSE)
 p
 
 
