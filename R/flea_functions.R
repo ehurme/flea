@@ -7,36 +7,69 @@ library(tuneR)
 library(plotly)
 
 read_flea_tag_data <- function(file_path) {
-  # Open the file
-  lines <- readLines(file_path)
 
-  # Find the index of the line containing "Delete memory by pressing button for 8"
-  stop_idx <- grep("Delete memory by pressing button for 8", lines)[1]
+  csv <- grepl(pattern = ".csv", x = file_path)
+  metadata <- NA
+  if(csv){
+    data <- read.csv(file_path)
 
-  # Split metadata (everything before the line starting with "lineCnt")
-  metadata_end_idx <- (grep("^lineCnt", lines) - 1)[1]
-  metadata_lines <- lines[1:metadata_end_idx]
+  }
+  if(!csv){
+    # Open the file
+    lines <- readLines(file_path)
 
-  # Extract the metadata into a list
-  metadata <- list()
-  for (line in metadata_lines) {
-    if (grepl(":", line)) {
-      split_line <- strsplit(line, ":")[[1]]
-      key <- trimws(split_line[1])
-      value <- trimws(split_line[2])
-      metadata[[key]] <- value
+    # Find the index of the line containing "Delete memory by pressing button for 8"
+    stop_idx <- grep("Delete memory by pressing button for 8", lines)[1]
+
+    # Split metadata (everything before the line starting with "lineCnt")
+    metadata_end_idx <- (grep("^lineCnt", lines) - 1)[1]
+
+    if(!is.na(metadata_end_idx)){
+      metadata_lines <- lines[1:metadata_end_idx]
+
+      # Extract the metadata into a list
+      metadata <- list()
+      for (line in metadata_lines) {
+        if (grepl(":", line)) {
+          split_line <- strsplit(line, ":")[[1]]
+          key <- trimws(split_line[1])
+          value <- trimws(split_line[2])
+          metadata[[key]] <- value
+        }
+      }
+
+      # Extract the data part starting from the lineCnt header until the stop point
+      data_lines <- lines[metadata_end_idx + 1:(stop_idx - metadata_end_idx - 1)]
+    }
+    if(is.na(metadata_end_idx)){
+      data_lines <- lines[1:(stop_idx - 1)]
+    }
+    # Read the data into a data frame
+    data <- read.csv(text = paste(data_lines, collapse = "\n"))
+    if(names(data)[1] != "lineCnt"){
+      names(data) <- c("lineCnt","timeMilliseconds","burstCount",
+                       "accX_mg","accY_mg","accZ_mg",
+                       "ColorSensRed_cnt","ColorSensGreen_cnt",
+                       "ColorSensBlue_cnt","ColorSensIR_cnt"  )
     }
   }
-
-  # Extract the data part starting from the lineCnt header until the stop point
-  data_lines <- lines[metadata_end_idx + 1:(stop_idx - metadata_end_idx - 1)]
-
-  # Read the data into a data frame
-  data <- read.csv(text = paste(data_lines, collapse = "\n"))
 
   # Return both metadata and data
   return(list(metadata = metadata, data = data))
 }
+
+get_true_groups <- function(x) {
+  idx <- which(x)
+  n <- length(idx)
+  if (n == 0) {
+    return(data.frame(start = integer(0), end = integer(0)))
+  }
+  diffs <- diff(idx)
+  starts <- idx[c(TRUE, diffs > 1)]
+  ends <- idx[c(diffs > 1, TRUE)]
+  data.frame(start = starts, end = ends)
+}
+
 
 flea_preprocess <- function(data,
                             sampling_rate = NULL,
