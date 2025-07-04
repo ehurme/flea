@@ -101,7 +101,7 @@ flea_preprocess <- function(data,
 
   # Convert microgravity units to g based on gain
   # Microgravity units: 1G = 1000 * gain units
-  conversion_factor <- gain * 1000
+  conversion_factor <- 1000
   data <- data %>%
     mutate(
       timeSeconds = timeMilliseconds / 1000,
@@ -205,10 +205,10 @@ flea_preprocess <- function(data,
       data$is_flying_temp[is.na(data$is_flying_temp)] <- FALSE
 
       # Calculate shift amount (window size in samples)
-      shift_amount <- window_samples - 1
+      shift_amount <- window_samples #- 1
 
       # Shift flying indicator backward to align with window start
-      data$is_flying <- lag(data$is_flying_temp, shift_amount/2, default = FALSE)
+      data$is_flying <- lead(data$is_flying_temp, round(shift_amount/4,0), default = FALSE)
 
       # Remove temporary column
       data$is_flying_temp <- NULL

@@ -5,8 +5,8 @@ library(gganimate)
 library(rgl)
 library(plotly)
 
-df <- fread("C:/Users/Edward/Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D.csv")
-df <- fread("C:/Users/Edward/Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D_20250226_C0001.csv")
+df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D.csv")
+df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D_20250226_C0001.csv")
 df %>% summary()
 
 data <- df %>% dplyr::filter(x > -3000 & x < 3000,
@@ -44,8 +44,39 @@ ggplot(data %>% filter(speed < 5),
   xlim(c(-100, 1200))+
   scale_color_viridis_c(name = "Speed (m/s)")
 
+ggplot(data %>% filter(speed < 5),
+       aes(x,z, col = speed))+
+  geom_point()+
+  #geom_path()+
+  ylim(c(1000, 3000))+
+  xlim(c(-100, 1500))+
+  scale_color_viridis_c(name = "Speed (m/s)")
+
 data$speed %>% summary
 data$speed %>% hist(breaks = 10000, xlim = c(0,1))
+
+ggplot(data %>% filter(speed < 10),
+       aes(Frame, z, col = speed))+
+  geom_point()+
+  scale_color_viridis_c()
+
+data_speed10 <- data %>% filter(speed < 10)
+tail <- 5
+pdf(file = "test.pdf")
+  for(i in seq(1, max(data$Frame), 10)){ #seq(1, nrow(data_speed10), 5)){
+    idx <- 1:i
+    if(length(idx) > tail*60){
+      idx <- idx[(length(idx)-tail*60):length(idx)]
+    }
+    p <- ggplot(data_speed10[idx,],
+           aes(x, y, col = speed))+
+      geom_point()+
+      geom_path()+
+      scale_color_viridis_c()+
+      ggtitle(paste("Time: ", round(max(data_speed10$Frame[idx])/60)))+theme_bw()
+    print(p)
+  }
+dev.off()
 
 
 library(gganimate)
