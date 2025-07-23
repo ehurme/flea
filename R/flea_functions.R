@@ -7,265 +7,317 @@ library(tuneR)
 library(plotly)
 
 read_flea_tag_data <- function(file_path) {
-  # Open the file
-  lines <- readLines(file_path)
 
-  # Find the index of the line containing "Delete memory by pressing button for 8"
-  stop_idx <- grep("Delete memory by pressing button for 8", lines)[1]
+  csv <- grepl(pattern = ".csv", x = file_path)
+  metadata <- NA
+  if(csv){
+    data <- read.csv(file_path)
 
-  # Split metadata (everything before the line starting with "lineCnt")
-  metadata_end_idx <- (grep("^lineCnt", lines) - 1)[1]
-  metadata_lines <- lines[1:metadata_end_idx]
+  }
+  if(!csv){
+    # Open the file
+    lines <- readLines(file_path)
 
-  # Extract the metadata into a list
-  metadata <- list()
-  for (line in metadata_lines) {
-    if (grepl(":", line)) {
-      split_line <- strsplit(line, ":")[[1]]
-      key <- trimws(split_line[1])
-      value <- trimws(split_line[2])
-      metadata[[key]] <- value
+    # Find the index of the line containing "Delete memory by pressing button for 8"
+    stop_idx <- grep("Delete memory by pressing button for 8", lines)[1]
+
+    # Split metadata (everything before the line starting with "lineCnt")
+    metadata_end_idx <- (grep("^lineCnt", lines) - 1)[1]
+
+    if(!is.na(metadata_end_idx)){
+      metadata_lines <- lines[1:metadata_end_idx]
+
+      # Extract the metadata into a list
+      metadata <- list()
+      for (line in metadata_lines) {
+        if (grepl(":", line)) {
+          split_line <- strsplit(line, ":")[[1]]
+          key <- trimws(split_line[1])
+          value <- trimws(split_line[2])
+          metadata[[key]] <- value
+        }
+      }
+
+      # Extract the data part starting from the lineCnt header until the stop point
+      data_lines <- lines[metadata_end_idx + 1:(stop_idx - metadata_end_idx - 1)]
+    }
+    if(is.na(metadata_end_idx)){
+      data_lines <- lines[1:(stop_idx - 1)]
+    }
+    # Read the data into a data frame
+    data <- read.csv(text = paste(data_lines, collapse = "\n"))
+    if(names(data)[1] != "lineCnt"){
+      names(data) <- c("lineCnt","timeMilliseconds","burstCount",
+                       "accX_mg","accY_mg","accZ_mg",
+                       "ColorSensRed_cnt","ColorSensGreen_cnt",
+                       "ColorSensBlue_cnt","ColorSensIR_cnt"  )
     }
   }
-
-  # Extract the data part starting from the lineCnt header until the stop point
-  data_lines <- lines[metadata_end_idx + 1:(stop_idx - metadata_end_idx - 1)]
-
-  # Read the data into a data frame
-  data <- read.csv(text = paste(data_lines, collapse = "\n"))
 
   # Return both metadata and data
   return(list(metadata = metadata, data = data))
 }
 
-# Function to preprocess the data
+get_true_groups <- function(x) {
+  idx <- which(x)
+  n <- length(idx)
+  if (n == 0) {
+    return(data.frame(start = integer(0), end = integer(0)))
+  }
+  diffs <- diff(idx)
+  starts <- idx[c(TRUE, diffs > 1)]
+  ends <- idx[c(diffs > 1, TRUE)]
+  data.frame(start = starts, end = ends)
+}
+
+
 flea_preprocess <- function(data,
-                            sampling_rate = 210,
-                            window = 0.5,
+                            sampling_rate = NULL,
+                            gain = 8,  # Default to 8G
+                            window = 1,
                             flying_column = "rolling_var_PC",
                             flying_threshold = 3.5) {
+  # Load required packages
+  require(dplyr)
+  require(zoo)
+
   # Check if data is not empty
   if (nrow(data) == 0) {
     stop("Input data is empty.")
   }
 
-  # Calculate sampling rate
-  if(is.null(sampling_rate)){
+  # Validate gain setting
+  if (!gain %in% c(2, 4, 8)) {
+    stop("Gain must be 2, 4, or 8")
+  }
+
+  # Calculate sampling rate if not provided
+  if (is.null(sampling_rate)) {
     sampling_rate <- round(1 / mean(diff(data$timeMilliseconds / 1000), na.rm = TRUE))
   }
 
+  # Calculate window size in samples
+  window_samples <- round(sampling_rate * window)
 
-  # Convert acceleration to g and calculate time in seconds
+  # Convert microgravity units to g based on gain
+  # Microgravity units: 1G = 1000 * gain units
+  conversion_factor <- 1000
   data <- data %>%
     mutate(
       timeSeconds = timeMilliseconds / 1000,
-      accX_g = accX_mg / 1000,
-      accY_g = accY_mg / 1000,
-      accZ_g = accZ_mg / 1000
+      accX_g = accX_mg / conversion_factor,
+      accY_g = accY_mg / conversion_factor,
+      accZ_g = accZ_mg / conversion_factor
     )
 
-  data$accX_dyn <- NA
-  data$accY_dyn <- NA
-  data$accZ_dyn <- NA
+  # Initialize new columns
+  data$accX_static <- NA
+  data$accY_static <- NA
+  data$accZ_static <- NA
+  data$accX_dynamic <- NA
+  data$accY_dynamic <- NA
+  data$accZ_dynamic <- NA
   data$VeDBA <- NA
   data$VeSBA <- NA
   data$ODBA <- NA
+  data$VM <- NA
+  data$ENMO <- NA
   data$pitch <- NA
   data$roll <- NA
   data$yaw <- NA
 
-  if(sampling_rate > 50){
-    # Calculate dynamic acceleration components
-    data <- data %>%
-      mutate(
-        accX_dyn = accX_g - mean(accX_g, na.rm = TRUE),
-        accY_dyn = accY_g - mean(accY_g, na.rm = TRUE),
-        accZ_dyn = accZ_g - mean(accZ_g, na.rm = TRUE)
-      )
+  # Calculate static acceleration (rolling mean)
+  data$accX_static <- rollmeanr(data$accX_g, k = window_samples, fill = NA)
+  data$accY_static <- rollmeanr(data$accY_g, k = window_samples, fill = NA)
+  data$accZ_static <- rollmeanr(data$accZ_g, k = window_samples, fill = NA)
 
-    # Calculate VeDBA and ODBA
-    data <- data %>%
-      mutate(
-        VeDBA = sqrt(accX_dyn^2 + accY_dyn^2 + accZ_dyn^2),
-        ODBA = abs(accX_dyn) + abs(accY_dyn) + abs(accZ_dyn)
-      )
-  }
+  # Calculate dynamic acceleration
+  data$accX_dynamic <- data$accX_g - data$accX_static
+  data$accY_dynamic <- data$accY_g - data$accY_static
+  data$accZ_dynamic <- data$accZ_g - data$accZ_static
+
+  # Calculate metrics
+  data <- data %>%
+    mutate(
+      # Vector magnitude (total acceleration)
+      VM = sqrt(accX_g^2 + accY_g^2 + accZ_g^2),
+
+      # Overall Dynamic Body Acceleration
+      ODBA = abs(accX_dynamic) + abs(accY_dynamic) + abs(accZ_dynamic),
+
+      # Vectorial Dynamic Body Acceleration
+      VeDBA = sqrt(accX_dynamic^2 + accY_dynamic^2 + accZ_dynamic^2),
+
+      # Vectorial Static Body Acceleration
+      VeSBA = sqrt(accX_static^2 + accY_static^2 + accZ_static^2),
+
+      # Euclidean Norm Minus One
+      ENMO = pmax(VM - 1, 0),
+
+      # Orientation angles (in degrees)
+      pitch = atan2(accY_static, sqrt(accX_static^2 + accZ_static^2)) * (180/pi),
+      roll = atan2(accX_static, sqrt(accY_static^2 + accZ_static^2)) * (180/pi),
+      yaw = atan2(accZ_static, sqrt(accX_static^2 + accY_static^2)) * (180/pi)
+    )
 
   # Calculate rolling metrics
   data <- data %>%
     mutate(
-      rolling_mean_X = rollmean(accX_g, k = round(sampling_rate * window, 0),
-                                fill = NA, align = "right"),
-      rolling_mean_Y = rollmean(accY_g, k = round(sampling_rate * window, 0),
-                                fill = NA, align = "right"),
-      rolling_mean_Z = rollmean(accZ_g, k = round(sampling_rate * window, 0),
-                                fill = NA, align = "right"),
-      rolling_var_X = rollapply(accX_g, width = round(sampling_rate * window, 0),
-                                FUN = var, fill = NA, align = "right"),
-      rolling_var_Y = rollapply(accY_g, width = round(sampling_rate * window, 0),
-                                FUN = var, fill = NA, align = "right"),
-      rolling_var_Z = rollapply(accZ_g, width = round(sampling_rate * window, 0),
-                                FUN = var, fill = NA, align = "right"))
-  data$rolling_VeDBA <- NA
-  data$rolling_var_VeDBA <- NA
-  if(sampling_rate > 50){
-    data <- data %>%
-      mutate(
-        rolling_VeDBA = rollmean(VeDBA, k = round(sampling_rate * window, 0),
-                                 fill = NA, align = "right"),
-        rolling_var_VeDBA = rollapply(VeDBA, width = round(sampling_rate * window, 0),
-                                      FUN = var, fill = NA, align = "right")
-      )
-  }
+      rolling_mean_X = rollmeanr(accX_g, k = window_samples, fill = NA),
+      rolling_mean_Y = rollmeanr(accY_g, k = window_samples, fill = NA),
+      rolling_mean_Z = rollmeanr(accZ_g, k = window_samples, fill = NA),
+      rolling_var_X = rollapplyr(accX_g, width = window_samples, FUN = var, fill = NA),
+      rolling_var_Y = rollapplyr(accY_g, width = window_samples, FUN = var, fill = NA),
+      rolling_var_Z = rollapplyr(accZ_g, width = window_samples, FUN = var, fill = NA),
+      rolling_mean_VeDBA = rollmeanr(VeDBA, k = window_samples, fill = NA),
+      rolling_var_VeDBA = rollapplyr(VeDBA, width = window_samples, FUN = var, fill = NA)
+    )
 
-  # Calculate first principal component
-  data$pc <- NA
-  try({
-    idx <- which(is.na(data$accX_g))
-    if(length(idx) > 0){
-      pc <- princomp(data[-idx,] %>% select(accX_g, accY_g, accZ_g))
-      data$pc[-idx] <- pc$scores[,1]
-    }
-    if(length(idx) == 0){
-      pc <- princomp(data %>% select(accX_g, accY_g, accZ_g))
-      data$pc <- pc$scores[,1]
-    }
+  # Calculate principal component
+  tryCatch({
+    complete_cases <- complete.cases(data[, c("accX_g", "accY_g", "accZ_g")])
+    if (sum(complete_cases) > 0) {
+      pca <- prcomp(data[complete_cases, c("accX_g", "accY_g", "accZ_g")], scale. = TRUE)
+      data$pc[complete_cases] <- pca$x[, 1]
 
-    # Calculate rolling metrics for PC
-    data <- data %>%
-      mutate(
-        rolling_mean_PC = rollmean(pc, k = sampling_rate * window, fill = NA, align = "right"),
-        rolling_var_PC = rollapply(pc, width = sampling_rate * window, FUN = var, fill = NA, align = "right")
-      )
+      # Calculate rolling metrics for PC
+      data <- data %>%
+        mutate(
+          rolling_mean_PC = rollmeanr(pc, k = window_samples, fill = NA),
+          rolling_var_PC = rollapplyr(pc, width = window_samples, FUN = var, fill = NA)
+        )
+    }
+  }, error = function(e) {
+    warning("PCA calculation failed: ", e$message)
+    data$pc <- NA
+    data$rolling_mean_PC <- NA
+    data$rolling_var_PC <- NA
   })
 
-  # Validate flying detection parameters
-  if(!flying_column %in% names(data)) {
-    stop("Column '", flying_column, "' not found in data. Available columns: ",
-         paste(names(data), collapse = ", "))
-  }
-  if(!is.numeric(flying_threshold) || length(flying_threshold) != 1) {
-    stop("flying_threshold must be a single numeric value")
-  }
+  # Flying detection with shift adjustment
+  data$is_flying <- FALSE
+  if (!is.null(flying_column)) {
+    if (flying_column %in% names(data)) {
+      # Create temporary flying indicator
+      data$is_flying_temp <- data[[flying_column]] > flying_threshold
 
-  # Determine if flying based on specified column and threshold
-  data$is_flying <- NA
-  if(!is.null(flying_column)){
-    data <- data %>%
-      mutate(is_flying = !!sym(flying_column) > flying_threshold)
+      # Replace NAs with FALSE
+      data$is_flying_temp[is.na(data$is_flying_temp)] <- FALSE
+
+      # Calculate shift amount (window size in samples)
+      shift_amount <- window_samples #- 1
+
+      # Shift flying indicator backward to align with window start
+      data$is_flying <- lead(data$is_flying_temp, round(shift_amount/4,0), default = FALSE)
+
+      # Remove temporary column
+      data$is_flying_temp <- NULL
+    } else {
+      warning("Flying column '", flying_column, "' not found. Skipping flying detection.")
+    }
   }
 
   return(data)
 }
 
-
 # Function to plot data with small points highlighting high variability periods and raw VeDBA variability
-flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
-                      plot_pc = TRUE, plot_spectro = TRUE, plot_flying = TRUE) {
+flea_plot <- function(data,
+                      plot_variance = TRUE,
+                      plot_vedba = TRUE,
+                      plot_pc = TRUE,
+                      plot_spectro = TRUE,
+                      plot_flying = TRUE,
+                      plot_static = TRUE,
+                      plot_orientation = TRUE) {
 
-  # Prepare high_var_data (empty if label_high_variability is FALSE)
+  require(plotly)
+
+  # Prepare flying data points
   high_var_data <- data %>% filter(is_flying == TRUE)
 
-  if(is.null(data$spectro)){
-    data$spectro <- NA
+  # Initialize spectro if missing
+  if(is.null(data$spectro_freq)) {
+    data$spectro_freq <- NA
   }
 
-  # Add all traces with initial visibility based on parameters
+  # Add all traces with initial visibility
   p <- plot_ly(data, x = ~timeSeconds) %>%
-    # Original acceleration signals # 0-5
+    # Original acceleration signals (0-5)
     add_lines(y = ~accX_g, name = "X-axis", line = list(color = 'dodgerblue'), visible = TRUE) %>%
     add_lines(y = ~rolling_mean_X, name = "Smoothed X", line = list(color = 'lightblue', dash = 'dash'), visible = TRUE) %>%
     add_lines(y = ~accY_g, name = "Y-axis", line = list(color = 'salmon'), visible = TRUE) %>%
     add_lines(y = ~rolling_mean_Y, name = "Smoothed Y", line = list(color = 'lightcoral', dash = 'dash'), visible = TRUE) %>%
     add_lines(y = ~accZ_g, name = "Z-axis", line = list(color = 'mediumseagreen'), visible = TRUE) %>%
     add_lines(y = ~rolling_mean_Z, name = "Smoothed Z", line = list(color = 'lightgreen', dash = 'dash'), visible = TRUE) %>%
-    # Variance traces 6-8
+
+    # Static metrics (6-8)
+    add_lines(y = ~VeSBA, name = "VeSBA", line = list(color = 'darkblue'), visible = plot_static) %>%
+    add_lines(y = ~VM, name = "Vector Magnitude", line = list(color = 'black'), visible = plot_static) %>%
+    add_lines(y = ~ENMO, name = "ENMO", line = list(color = 'darkgreen'), visible = plot_static) %>%
+
+    # Variance traces (9-11)
     add_lines(y = ~rolling_var_X, name = "Variance X", line = list(color = 'dodgerblue', dash = 'dot'), visible = plot_variance) %>%
     add_lines(y = ~rolling_var_Y, name = "Variance Y", line = list(color = 'salmon', dash = 'dot'), visible = plot_variance) %>%
     add_lines(y = ~rolling_var_Z, name = "Variance Z", line = list(color = 'mediumseagreen', dash = 'dot'), visible = plot_variance) %>%
-    # PC1 trace # 9-11
+
+    # PC1 trace (12-14)
     add_lines(y = ~pc, name = "PC1", line = list(color = 'lightblue'), visible = plot_pc) %>%
     add_lines(y = ~rolling_mean_PC, name = "Smoothed PC1", line = list(color = 'darkred', dash = 'dash'), visible = plot_pc) %>%
     add_lines(y = ~rolling_var_PC, name = "Variance PC1", line = list(color = 'mediumseagreen', dash = 'dot'), visible = plot_pc) %>%
-    # Spectrogram frequency trace # 12
+
+    # Spectrogram frequency trace (15)
     add_trace(y = ~spectro_freq, name = 'Spectro Freq', type = 'scatter', visible = plot_spectro) %>%
-    # VeDBA/ODBA traces # 13-16
+
+    # VeDBA/ODBA traces (16-19)
     add_lines(y = ~ODBA, name = "ODBA", line = list(color = 'orchid'), visible = plot_vedba) %>%
     add_lines(y = ~VeDBA, name = "VeDBA", line = list(color = 'orange'), visible = plot_vedba) %>%
-    add_lines(y = ~rolling_VeDBA, name = "Smoothed VeDBA", line = list(color = 'olive', dash = 'dash'), visible = plot_vedba) %>%
+    add_lines(y = ~rolling_mean_VeDBA, name = "Smoothed VeDBA", line = list(color = 'olive', dash = 'dash'), visible = plot_vedba) %>%
     add_lines(y = ~rolling_var_VeDBA, name = "VeDBA Var", line = list(color = 'purple', dash = 'dot'), visible = plot_vedba) %>%
-    # High variability markers # 17
+
+    # Orientation angles (20-22)
+    add_lines(y = ~pitch, name = "Pitch", line = list(color = 'darkorange'), visible = plot_orientation) %>%
+    add_lines(y = ~roll, name = "Roll", line = list(color = 'darkred'), visible = plot_orientation) %>%
+    add_lines(y = ~yaw, name = "Yaw", line = list(color = 'darkviolet'), visible = plot_orientation) %>%
+
+    # High variability markers (23)
     add_markers(data = high_var_data, y = ~rolling_var_PC, name = "Flying",
                 marker = list(color = 'darkcyan', size = 6), visible = plot_flying)
 
   # Define trace groups and their indices (0-based)
   trace_groups <- list(
-    "All" = 0:17,
+    "All" = 0:23,
     "Original" = c(0, 2, 4),        # X, Y, Z axes
     "Smoothed" = c(1, 3, 5),        # Smoothed X, Y, Z
-    "Variance" = c(6, 7, 8),        # Variance X, Y, Z
-    "VeDBA/ODBA" = c(13,14,15,16), # ODBA, VeDBA, Smoothed VeDBA, VeDBA Var
-    "PC1" = c(9,10,11),            # PC1, smoothed PC1, var PC1
-    "Spectro" = 12,                 # Spectro Freq
-    "Flying" = 17                   # Flying markers
+    "Static" = 6:8,                 # VeSBA, VM, ENMO
+    "Variance" = 9:11,              # Variance X, Y, Z
+    "PC1" = 12:14,                  # PC1, smoothed PC1, var PC1
+    "Spectro" = 15,                 # Spectro Freq
+    "VeDBA/ODBA" = 16:19,           # ODBA, VeDBA, Smoothed VeDBA, VeDBA Var
+    "Orientation" = 20:22,          # Pitch, Roll, Yaw
+    "Flying" = 23                   # Flying markers
   )
 
   # Function to generate visibility list for a group
-  create_visible <- function(group_indices, total = 18) {
+  create_visible <- function(group_indices, total = 24) {
     visible <- rep(FALSE, total)
     visible[group_indices + 1] <- TRUE  # Convert to 1-based index
     return(visible)
   }
 
   # Create buttons for each group
-  buttons <- list(
+  buttons <- lapply(names(trace_groups), function(group_name) {
     list(
-      label = "All",
+      label = group_name,
       method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["All"]])))
-    ),
-    list(
-      label = "Original Signals",
-      method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["Original"]])))
-    ),
-    list(
-      label = "Smoothed",
-      method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["Smoothed"]])))
-    ),
-    list(
-      label = "Variance",
-      method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["Variance"]])))
-    ),
-    list(
-      label = "VeDBA/ODBA",
-      method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["VeDBA/ODBA"]])))
-    ),
-    list(
-      label = "PC1",
-      method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["PC1"]])))
-    ),
-    list(
-      label = "Spectro",
-      method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["Spectro"]])))
-    ),
-    list(
-      label = "Flying",
-      method = "restyle",
-      args = list(list(visible = create_visible(trace_groups[["Flying"]])))
+      args = list(list(visible = create_visible(trace_groups[[group_name]])))
     )
-  )
+  })
 
   # Add updatemenus to the plot
   p <- p %>% layout(
-    title = "Acceleration Axes, Smoothed Axes, ODBA, and VeDBA Over Time",
+    title = "Comprehensive Accelerometer Analysis",
     xaxis = list(title = "Time (seconds)"),
-    yaxis = list(title = "Acceleration (g) and DBA (g)"),
+    yaxis = list(title = "Acceleration (g), DBA (g), and Degrees"),
     legend = list(x = 0.1, y = 0.9),
     plot_bgcolor = 'grey100',
     paper_bgcolor = 'grey100',
@@ -285,7 +337,6 @@ flea_plot <- function(data, plot_variance = TRUE, plot_vedba = TRUE,
 
   return(p)
 }
-
 
 
 

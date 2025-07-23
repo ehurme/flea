@@ -19,6 +19,7 @@ file_path <- "C:/Users/Edward/Downloads/2024-Fall-Moth-Barn/2024-Fall-Moth-Barn/
 file_path <- "C:/Users/Edward/Downloads/2024-Fall-Moth-Barn/2024-Fall-Moth-Barn/20240917/Moth3_20240917_151055_02_secondFlight.csv"
 file_path <- "C:/Users/Edward/Downloads/2024-Fall-Moth-Barn/2024-Fall-Moth-Barn/20240919/Moth7_missing_upto3000_20240919_124224_FleaTagData.txt"
 file_path <- "C:/Users/Edward/Downloads/2024-Fall-Moth-Barn/2024-Fall-Moth-Barn/20240920/Moth8_greatflight_lostballearlyon_20240920_152047_FleaTagData.txt"
+file_path <- "../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250213_BiC_Fleatag/20250213_224550_303D_Db_193_Trial2.txt"
 
 flea_data <- read_flea_tag_data(file_path)
 
