@@ -4,17 +4,19 @@ library(data.table)
 library(gganimate)
 library(rgl)
 library(plotly)
+library(magrittr)
 
 df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D.csv")
 df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D_20250226_C0001.csv")
-df %>% summary()
+df <- fread("F:/Flanders25/Videos/20250521/Data/Key3D_202500521_C0002_aligned.csv")
+df %>% head()
 
-data <- df %>% dplyr::filter(x > -3000 & x < 3000,
-                     y > -3000 & y < 3000,
-                     z > -3000 & z < 3000,
-                     Keypoint == "pose0")
+data <- df %>% dplyr::filter(x > -5000 & x < 5000,
+                     y > -5000 & y < 5000,
+                     z > -5000 & z < 5000)
 
-
+plot(data$x, data$z, col = rgb(0,0,0,.1), cex = 0.4)
+plot(data$x, data$y, col = rgb(0,0,0,.1), cex = 0.4)
 
 # calculate speed and distance between points
 # units = millimeters per frame 1/60
@@ -23,34 +25,45 @@ data %>% mutate(
   # distance = c(0, cumsum(speed))
 ) -> data
 
-ggplot(data, aes(x = Frame, y = speed)) +
-  geom_line() +
+hist(data$speed, breaks = 100)
+ggplot(data %>% filter(speed < 20),
+       aes(x = Frame, y = speed)) +
+  geom_point(alpha = 0.3) +
   theme_minimal() +
   labs(title = "Speed over Time", x = "Frame", y = "Speed (m/s)")# +
 
-ggplot(data %>% filter(speed < 5),
-       aes(z,y, col = speed))+
-  geom_point()+
-  #geom_path()+
-  ylim(c(-1000, 1000))+
-  xlim(c(1000, 3000))+
-  scale_color_viridis_c(name = "Speed (m/s)")
 
-ggplot(data %>% filter(speed < 5),
+data %>% filter(Frame > 11500, Frame < 12000) %$%  hist(speed, breaks = 100)
+
+
+ggplot(data %>% filter(speed < 20,
+                       Frame > 11500, Frame < 12000),
+       aes(z,x, col = Frame))+
+  geom_point()+
+  geom_path()+
+  # ylim(c(-2000, 2000))+
+  # xlim(c(-5000, 5000))+
+  scale_color_viridis_c(name = "Frame")
+
+ggplot(data %>% filter(speed < 15,
+                       Frame > 11500, Frame < 12000),
        aes(x,y, col = speed))+
   geom_point()+
   #geom_path()+
-  ylim(c(-1000, 0))+
-  xlim(c(-100, 1200))+
-  scale_color_viridis_c(name = "Speed (m/s)")
+  # ylim(c(-100, 2000))+
+  # xlim(c(-2000, 2000))+
+  scale_color_viridis_c(name = "Speed (m/s)")+
+  coord_equal()
 
-ggplot(data %>% filter(speed < 5),
-       aes(x,z, col = speed))+
+ggplot(data %>% filter(speed < 15,
+                       Frame > 11500, Frame < 12000),
+       aes(z,x, col = speed))+
   geom_point()+
   #geom_path()+
-  ylim(c(1000, 3000))+
-  xlim(c(-100, 1500))+
-  scale_color_viridis_c(name = "Speed (m/s)")
+  # ylim(c(-3000, 3000))+
+  # xlim(c(-5000, 5000))+
+  scale_color_viridis_c(name = "Speed (m/s)")+
+  coord_equal()
 
 data$speed %>% summary
 data$speed %>% hist(breaks = 10000, xlim = c(0,1))
@@ -80,12 +93,12 @@ dev.off()
 
 
 library(gganimate)
-ggplot(data %>% filter(speed < 5),
+ggplot(data %>% filter(speed < 10),
        aes(z,y, col = speed, group = Keypoint))+
   geom_point()+
   #geom_line()+
-  ylim(c(-1000, 1000))+
-  xlim(c(1000, 3000))+
+  ylim(c(-100, 2000))+
+  xlim(c(-2000, 2000))+
   transition_time(time = Frame)
 
 # with(data %>% filter(speed < 10,
@@ -102,10 +115,11 @@ sdata = data.frame(
   y=splinefun(t, df$y)(tt),
   z=splinefun(t, df$z)(tt))
 
-fig <- plot_ly(data = df %>% dplyr::filter(x > -3000 & x < 3000,
-                y > -3000 & y < 3000,
-                z > -3000 & z < 3000,
-                Keypoint == "pose0"), #, Frame < 1000),
+fig <- plot_ly(data = data %>%
+                 dplyr::filter(x > -2000 & x < 2000,
+                               y > -200 & y < 3000,
+                               z > -5000 & z < 5000,
+                Keypoint == "pose0", Frame < 1000),
                 x = ~x, y = ~y, z = ~z,
                 # type = "scatter3d", mode = "markers",
                 # marker = list(size = 1, colorbar = list(title = "Frame")),
