@@ -472,3 +472,15 @@ get_peak_range <- function(density, threshold = 0.8,
   return(list(peak, peak_summary))
 }
 
+# helper to convert "HH:MM:SS.xxx" to seconds
+to_sec <- function(x) {
+  parts <- unlist(strsplit(x, ":"))
+  h <- as.numeric(parts[1])
+  m <- as.numeric(parts[2])
+
+  # seconds may contain decimals
+  s <- as.numeric(parts[3])
+
+  h*3600 + m*60 + s
+}
+
