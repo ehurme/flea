@@ -1,6 +1,6 @@
 
 # Function to generate trex commands for video files
-generate_trex_commands <- function(drive_letter = "E:\\FlandersAugust2025\\Video",
+generate_trex_commands <- function(drive_letter = "F:\\FlandersAugust2025\\Video",
                                    settings_path = "C:\\Users\\Edward\\default_convert.settings",
                                    video_extensions = c(".mp4", ".MP4", ".mov", ".MOV", ".avi", ".AVI",
                                                         ".mkv", ".MKV", ".wmv", ".WMV")) {
@@ -24,7 +24,7 @@ generate_trex_commands <- function(drive_letter = "E:\\FlandersAugust2025\\Video
 
 # Usage example:
 # Generate commands for drive E:
-commands <- generate_trex_commands(drive_letter = "E:\\FlandersAugust2025\\Video")
+commands <- generate_trex_commands(drive_letter = "F:\\FlandersAugust2025\\Video")
 
 # Print commands to console (you can copy-paste these to command line)
 cat(commands, sep = "\n")

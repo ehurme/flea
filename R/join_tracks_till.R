@@ -2,48 +2,49 @@
 # Code for Till
 #
 
-source("R/transform_trex_pose_data.R")
+source("C:/Users/Edward/Desktop/Github/flea/R/transform_trex_pose_data.R")
 
 # edit these and nothing else
-directory <- "F:/Flanders25/Videos/"
+directory <- "F:/Flanders25/Videos"
+#directory <- "F:/Flanders25/Videos"
 date <- "20250520"
 video <- "C0009"
-folder <- "videos_pv"
+folder <- "checked/data"
 
-# run all
+
 
 flanders1 <- transform_trex_pose_data(file = paste0(directory, "/", date,
-                                                    "/F1/", folder, "/data/F1_", date,
+                                                    "/F1/", folder, "/F1_", date,
                                                     "_", video, "_id0.csv"),
                                       camera_name = "F1",
                                       frame_diff = 0,
                                       individual_id = "bat0")
 flanders2 <- transform_trex_pose_data(file = paste0(directory, "/", date,
-                                                    "/F2/", folder, "/data/F2_", date,
+                                                    "/F2/", folder, "/F2_", date,
                                                     "_", video, "_id0.csv"),
                                       camera_name = "F2",
                                       frame_diff = 0,
                                       individual_id = "bat0")
 flanders3 <- transform_trex_pose_data(file = paste0(directory, "/", date,
-                                                    "/F3/", folder, "/data/F3_", date,
+                                                    "/F3/", folder, "/F3_", date,
                                                     "_", video, "_id0.csv"),
                                       camera_name = "F3",
                                       frame_diff = 0,
                                       individual_id = "bat0")
 flanders4 <- transform_trex_pose_data(file = paste0(directory, "/", date,
-                                                    "/F4/", folder, "/data/F4_", date,
+                                                    "/F4/", folder, "/F4_", date,
                                                     "_", video, "_id0.csv"),
                                       camera_name = "F4",
                                       frame_diff = 0,
                                       individual_id = "bat0")
 flanders5 <- transform_trex_pose_data(file = paste0(directory, "/", date,
-                                                    "/F5/", folder, "/data/F5_", date,
+                                                    "/F5/", folder, "/F5_", date,
                                                     "_", video, "_id0.csv"),
                                       camera_name = "F5",
                                       frame_diff = 0,
                                       individual_id = "bat0")
 flanders6 <- transform_trex_pose_data(file = paste0(directory, "/", date,
-                                                    "/F6/", folder, "/data/F6_", date,
+                                                    "/F6/", folder, "/F6_", date,
                                                     "_", video, "_id0.csv"),
                                       camera_name = "F6",
                                       frame_diff = 0,
@@ -52,23 +53,44 @@ flanders6 <- transform_trex_pose_data(file = paste0(directory, "/", date,
 all_flanders <- rbind(flanders1, flanders2, flanders3, flanders4,
                       flanders5, flanders6)
 write.csv(all_flanders, #%>% filter(Keypoint == "centroid_cm"),
-          paste0("../../../Dropbox/MPI/Wingbeat/Flanders25/Videos/", date,
-                 "/trex_", date, "_", video, "_all_cameras.csv"),
-          row.names = FALSE)
-write.csv(all_flanders, #%>% filter(Keypoint == "centroid_cm"),
-          paste0(directory, "/", date,
-                 "/Data/trex_", date, "_", video, "_all_cameras.csv"),
+          paste0("F:/Flanders25/Videos/", date, "/Data/", "trex_", date, "_", video, "_all_cameras.csv"),
           row.names = FALSE)
 
-ggplot(all_flanders %>% filter(Keypoint == "centroid_cm"),
-       aes(x = Frame, y = y, col = Cam)) +
-  geom_point() +
+#../../../Dropbox/MPI/Wingbeat/Flanders25/Videos/
+
+#p1 <-
+  ggplot(all_flanders %>%
+         filter(Keypoint == "centroid_cm",
+                Frame > 5000, Frame < 10000),
+       aes(x = Frame, y = x, col = Cam)) +
+  geom_point(alpha = 0.5) +
   theme_minimal()+
   facet_wrap(~Cam)
 
+library(ggpubr)
+ggarrange(p1, p2, ncol = 1)
+
+
 all_flanders$Keypoint %>% table()
 
-# finca1 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0005_fish0.csv"),
+
+# calculate speed for each camera
+all_flanders %>% group_by(Cam, Keypoint) %>%
+  arrange(Frame) %>%
+  mutate(diff_x = c(NA, diff(x)),
+         diff_y = c(NA, diff(y)),
+         speed = sqrt(diff_x^2 + diff_y^2)) -> all_flanders
+
+
+ggplot(all_flanders %>%
+         filter(Keypoint == "centroid_cm",
+                Frame > 4000, Frame < 15000),
+       aes(x = Frame, y = speed, col = Cam)) +
+  geom_point(alpha = 0.5) +
+  theme_minimal()+
+  facet_wrap(~Cam)
+
+ # finca1 <- rbind(transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0005_fish0.csv"),
 #                                          camera_name = "finca1", frame_diff = 0, individual_id = "bat0"),
 #                 transform_trex_pose_data(df = fread("E:/Finca_Flights/20250226/finca1/data/finca1_20250226_C0005_fish1.csv"),
 #                                          camera_name = "finca1", frame_diff = 0, individual_id = "bat1"),
