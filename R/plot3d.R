@@ -6,9 +6,10 @@ library(rgl)
 library(plotly)
 library(magrittr)
 
-df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D.csv")
-df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D_20250226_C0001.csv")
-df <- fread("F:/Flanders25/Videos/20250521/Data/Key3D_202500521_C0002_aligned.csv")
+# df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D.csv")
+# df <- fread("../../../Dropbox/MPI/Wingbeat/Colombia25/Data/20250226/Key3D_20250226_C0001.csv")
+# df <- fread("F:/Flanders25/Videos/20250521/Data/Key3D_202500521_C0002_aligned.csv")
+df <- fread("//10.0.16.7/grpdechmann/Postdoc-EdwardHurme/Flanders2025/Videos/20250520/Data/Key3D_20250520_C0004_aligned.csv")
 df %>% head()
 
 data <- df %>% dplyr::filter(x > -5000 & x < 5000,
