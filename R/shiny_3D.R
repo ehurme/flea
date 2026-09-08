@@ -148,7 +148,7 @@ ui <- fluidPage(
       numericInput("window", "frame Window", value = 300, min = 1),
       selectInput("keypoint", "keypoints", choices = NULL, multiple = TRUE),
       selectInput("colorField", "Color by:",
-                  choices = c("frame", "Speed", "TurnAngle", "Heading")),
+                  choices = c("frame", "Speed", "TurnAngle", "Heading", "Keypoint")),
       radioButtons("units", "Display units", choices = c("m", "mm"),
                    selected = "m", inline = TRUE),
       checkboxInput("showSkeleton", "Connect keypoints at current frame (skeleton)", FALSE),
@@ -187,7 +187,16 @@ ui <- fluidPage(
         tabPanel("Summary",
                  h4("Movement summary"),
                  tableOutput("summaryTable"),
-                 h4("Straight/level flights (elevation change ≤ 0.3 m, duration ≥ 1 s)"),
+                 h4("Straight/level flights"),
+                 fluidRow(
+                   column(4, numericInput("maxElevChange", "Max elevation change (m)", value = 0.3, min = 0, step = 0.05)),
+                   column(4, numericInput("minDuration", "Min duration (s)", value = 1, min = 0, step = 0.5)),
+                   column(4, numericInput("minStraightness", "Min straightness (0-1, net/path distance)", value = 0, min = 0, max = 1, step = 0.05))
+                 ),
+                 helpText("Straightness = net horizontal (x/z) displacement over the bout divided by the horizontal path length flown; 1 = perfectly straight line, lower = more winding."),
+                 tableOutput("straightFlightSummaryTable"),
+                 plotOutput("straightFlightPlot", height = "400px"),
+                 h4("Individual straight/level flight bouts"),
                  tableOutput("straightFlightTable")),
         tabPanel("Accelerometer",
                  fluidRow(
@@ -300,7 +309,18 @@ server <- function(input, output, session) {
            "frame" = "frame",
            "Speed" = "speed",
            "TurnAngle" = "TurnAngle",
-           "Heading" = "heading")
+           "Heading" = "heading",
+           "Keypoint" = "keypoint")
+  })
+
+  is_discrete_color <- reactive(input$colorField == "Keypoint")
+
+  # Fixed color per keypoint (not per current filter) so a keypoint keeps the
+  # same color across frame/range changes instead of repainting as the
+  # selection shrinks.
+  keypointPalette <- reactive({
+    kps <- sort(unique(data()$keypoint))
+    setNames(viridisLite::viridis(length(kps)), kps)
   })
 
   unit_mult <- reactive(if (input$units == "mm") 1000 else 1)
@@ -351,6 +371,7 @@ server <- function(input, output, session) {
   })
 
   get_color_range <- reactive({
+    req(!is_discrete_color())
     df <- filtered()
     vals <- df[[color_col()]]
     req(length(vals) > 0)
@@ -381,55 +402,153 @@ server <- function(input, output, session) {
   output$summaryTable <- renderTable(summaryStats(), digits = 3)
 
   # Contiguous runs where elevation (height, the y column) barely changes --
-  # a trailing 1s window whose y-range stays within 0.3m is flagged "level",
-  # then merged into bouts and kept if the bout itself lasts >= 1s.
+  # a trailing 1s window whose y-range stays within input$maxElevChange is
+  # flagged "level", then merged into bouts and kept if the bout itself
+  # lasts >= input$minDuration and is at least input$minStraightness straight.
+  # `partial = TRUE` on rollapply is required now that multiple id/keypoint
+  # groups can be selected at once: some groups can have fewer rows than
+  # win_frames within the current filter window (sparser tracking, shorter
+  # visible span, etc), and a plain rollapply() errors ("width must be
+  # smaller than length(x)") on any group shorter than the window -- which
+  # previously aborted the whole reactive.
   straightFlights <- reactive({
     df <- filtered()
     req(nrow(df) > 0)
     fps <- 30  # matches the fixed frame-rate assumed elsewhere (dt = 1/30)
     win_frames <- max(round(1 * fps), 2)
+    max_elev_change <- req(input$maxElevChange)
+    min_duration <- req(input$minDuration)
+    min_straightness <- req(input$minStraightness)
 
     df %>%
       group_by(id, keypoint) %>%
       arrange(frame) %>%
       mutate(elev_range = zoo::rollapply(y, width = win_frames,
                                           FUN = function(v) diff(range(v, na.rm = TRUE)),
-                                          fill = NA, align = "right"),
-             is_level = !is.na(elev_range) & elev_range <= 0.3) %>%
+                                          fill = NA, align = "right", partial = TRUE),
+             is_level = !is.na(elev_range) & elev_range <= max_elev_change) %>%
       group_modify(~ {
+        empty <- tibble(start = integer(0), end = integer(0), frame_start = integer(0),
+                         frame_end = integer(0), duration_s = numeric(0), mean_speed = numeric(0),
+                         path_length = numeric(0), net_displacement = numeric(0), straightness = numeric(0))
         runs <- get_true_groups(.x$is_level)
-        if (nrow(runs) == 0) return(tibble())
+        if (nrow(runs) == 0) return(empty)
         runs$frame_start <- .x$frame[runs$start]
         runs$frame_end   <- .x$frame[runs$end]
         runs$duration_s  <- (runs$frame_end - runs$frame_start) / fps
         runs$mean_speed  <- vapply(seq_len(nrow(runs)), function(i)
           mean(.x$speed[runs$start[i]:runs$end[i]], na.rm = TRUE), numeric(1))
+        # Horizontal (ground-plane, x/z) distance flown: path_length is the
+        # summed step-to-step distance, net_displacement is straight-line
+        # start-to-end distance. straightness = net / path (1 = dead straight).
+        runs$path_length <- vapply(seq_len(nrow(runs)), function(i) {
+          rows <- runs$start[i]:runs$end[i]
+          sum(sqrt(diff(.x$x[rows])^2 + diff(.x$z[rows])^2), na.rm = TRUE)
+        }, numeric(1))
+        runs$net_displacement <- vapply(seq_len(nrow(runs)), function(i) {
+          sqrt((.x$x[runs$end[i]] - .x$x[runs$start[i]])^2 +
+               (.x$z[runs$end[i]] - .x$z[runs$start[i]])^2)
+        }, numeric(1))
+        runs$straightness <- ifelse(runs$path_length > 0, runs$net_displacement / runs$path_length, NA)
         runs
       }) %>%
       ungroup() %>%
-      filter(duration_s >= 1)
+      filter(duration_s >= min_duration,
+             is.na(straightness) | straightness >= min_straightness)
   })
 
   straightFlightSummary <- reactive({
     sf <- straightFlights()
     u <- input$units
+    m <- unit_mult()
     if (nrow(sf) == 0) {
       return(tibble(id = integer(), keypoint = character(), n_straight_flights = integer(),
-                     total_duration_s = numeric(), mean_duration_s = numeric()))
+                     n_frames = integer(), total_duration_s = numeric(),
+                     mean_duration_s = numeric(), median_duration_s = numeric()))
     }
+    # Bug fix: dplyr::summarise() evaluates its arguments in order and each
+    # new column shadows any same-named column in the data for the rest of
+    # the call. `mean_speed = mean(mean_speed, ...)` reassigns `mean_speed`
+    # to the aggregated scalar, so the following `median_speed = median(mean_speed, ...)`
+    # was taking the median of that already-aggregated value (= itself), not
+    # of the per-bout speeds -- which is why mean and median came out
+    # identical. Renaming the per-bout source column first avoids the clash.
+    sf <- sf %>% rename(bout_speed = mean_speed)
     sf %>%
       group_by(id, keypoint) %>%
       summarise(
         n_straight_flights = n(),
+        n_frames = sum(frame_end - frame_start + 1),
         total_duration_s = sum(duration_s),
         mean_duration_s = mean(duration_s),
-        mean_speed = mean(mean_speed, na.rm = TRUE) * unit_mult(),
+        median_duration_s = median(duration_s),
+        mean_speed = mean(bout_speed, na.rm = TRUE) * m,
+        median_speed = median(bout_speed, na.rm = TRUE) * m,
+        mean_distance_flown = mean(net_displacement, na.rm = TRUE) * m,
+        median_distance_flown = median(net_displacement, na.rm = TRUE) * m,
+        mean_straightness = mean(straightness, na.rm = TRUE),
+        median_straightness = median(straightness, na.rm = TRUE),
         .groups = "drop"
       ) %>%
-      rename(!!paste0("mean_speed (", u, "/s)") := mean_speed)
+      rename(!!paste0("mean_speed (", u, "/s)") := mean_speed,
+             !!paste0("median_speed (", u, "/s)") := median_speed,
+             !!paste0("mean_distance_flown (", u, ")") := mean_distance_flown,
+             !!paste0("median_distance_flown (", u, ")") := median_distance_flown)
   })
 
-  output$straightFlightTable <- renderTable(straightFlightSummary(), digits = 2)
+  output$straightFlightSummaryTable <- renderTable(straightFlightSummary(), digits = 2)
+
+  # Expands each straight/level flight bout (id, keypoint, frame_start:frame_end)
+  # back out into the underlying track points, for the summary viewer plot.
+  straightFlightPoints <- reactive({
+    sf <- straightFlights()
+    req(nrow(sf) > 0)
+    df <- filtered()
+    sf$bout_id <- seq_len(nrow(sf))
+    bind_rows(lapply(seq_len(nrow(sf)), function(i) {
+      r <- sf[i, ]
+      df %>%
+        filter(id == r$id, keypoint == r$keypoint,
+               frame >= r$frame_start, frame <= r$frame_end) %>%
+        mutate(bout_id = r$bout_id)
+    }))
+  })
+
+  # Viewer at the bottom of the straight-flight summary: current filtered
+  # track (grey) with the identified straight/level bouts highlighted (red),
+  # in the horizontal (x/z, ground-plane) view used for the straightness calc.
+  output$straightFlightPlot <- renderPlot({
+    df_all <- filtered()
+    validate(need(nrow(df_all) > 0, "No points match the current filters."))
+    pts <- straightFlightPoints()
+    validate(need(nrow(pts) > 0, "No straight/level flight bouts match the current thresholds."))
+
+    m <- unit_mult()
+    df_all <- df_all %>% mutate(across(c(x, y, z), ~ . * m))
+    pts <- pts %>% mutate(across(c(x, y, z), ~ . * m))
+
+    ggplot() +
+      geom_path(data = df_all, aes(x = x, y = z, group = grp), color = "grey80", linewidth = 0.3) +
+      geom_path(data = pts, aes(x = x, y = z, group = interaction(bout_id, grp)),
+                color = "firebrick", linewidth = 1) +
+      geom_point(data = pts, aes(x = x, y = z), color = "firebrick", size = 1, alpha = 0.6) +
+      coord_fixed() +
+      labs(x = paste0("X (", input$units, ")"), y = paste0("Z (", input$units, ")"),
+           title = "Grey = filtered track | Red = straight/level flight bouts") +
+      theme_minimal()
+  })
+
+  output$straightFlightTable <- renderTable({
+    u <- input$units
+    m <- unit_mult()
+    sf <- straightFlights() %>% select(-start, -end)
+    sf %>%
+      mutate(mean_speed = mean_speed * m, path_length = path_length * m,
+             net_displacement = net_displacement * m) %>%
+      rename(!!paste0("mean_speed (", u, "/s)") := mean_speed,
+             !!paste0("path_length (", u, ")") := path_length,
+             !!paste0("net_displacement (", u, ")") := net_displacement)
+  }, digits = 2)
 
   # ---- Accelerometer (FleaTag) import & alignment ----
   # Same offset/sampling-rate correction as R/align_boris_flea_shiny.R, just
@@ -583,12 +702,17 @@ server <- function(input, output, session) {
                 color = "black", alpha = 0.4, linewidth = 0.3) +
       geom_point(aes(color = .data[[color_col()]], shape = factor(id), alpha = fade),
                  size = 2, show.legend = c(color = TRUE, shape = TRUE, alpha = FALSE)) +
-      scale_color_viridis_c(name = input$colorField, option = "D",
-                             limits = get_color_range(), na.value = "grey") +
       scale_alpha_identity() +
       labs(linetype = "id", shape = "id", x = lab1, y = lab2) +
       coord_fixed(xlim = lims1, ylim = lims2) +
       theme_minimal()
+
+    p <- if (is_discrete_color()) {
+      p + scale_color_viridis_d(name = input$colorField, option = "D", na.value = "grey")
+    } else {
+      p + scale_color_viridis_c(name = input$colorField, option = "D",
+                                 limits = get_color_range(), na.value = "grey")
+    }
 
     if (isTRUE(input$showSkeleton)) {
       sk <- skeletonFrame() %>% mutate(across(c(x, y, z), ~ . * m))
@@ -629,7 +753,7 @@ server <- function(input, output, session) {
 
     m <- unit_mult()
     df <- df %>% mutate(across(c(x, y, z), ~ . * m))
-    cr <- get_color_range()
+    cr <- if (is_discrete_color()) NULL else get_color_range()
 
     # Insert an NA row after each id+keypoint group so plot_ly/rgl draw separate
     # line segments per individual/keypoint instead of one continuous trace.
@@ -665,18 +789,26 @@ server <- function(input, output, session) {
     dash_types <- c("solid", "dot", "dash", "longdash", "dashdot")
     ids <- sort(unique(df$id))
 
+    discrete <- is_discrete_color()
+    pal <- keypointPalette()
+
     p <- plot_ly()
     for (i in seq_along(ids)) {
       d_i <- s$df_breaks %>% filter(id == ids[i])
+      marker <- if (discrete) {
+        list(size = 3, color = unname(pal[as.character(d_i$keypoint)]))
+      } else {
+        list(size = 3, color = d_i[[color_col()]],
+             colorscale = "Viridis", cmin = s$cr[1], cmax = s$cr[2],
+             showscale = (i == 1),
+             colorbar = list(title = input$colorField))
+      }
       p <- p %>% add_trace(
         data = d_i, x = ~x, y = ~z, z = ~y,  # swap y<->z
         type = "scatter3d", mode = "lines+markers",
         name = paste("id", ids[i]),
         line = list(color = "black", width = 1, dash = dash_types[((i - 1) %% length(dash_types)) + 1]),
-        marker = list(size = 3, color = d_i[[color_col()]],
-                      colorscale = "Viridis", cmin = s$cr[1], cmax = s$cr[2],
-                      showscale = (i == 1),
-                      colorbar = list(title = input$colorField))
+        marker = marker
       )
     }
 
@@ -731,9 +863,14 @@ server <- function(input, output, session) {
 
       s <- scene3D()
       df <- s$df
-      pal <- viridisLite::viridis(256)
-      idx <- pmin(pmax(round((df[[color_col()]] - s$cr[1]) / diff(s$cr) * 255) + 1, 1), 256)
-      cols <- ifelse(is.na(idx), "grey70", pal[idx])
+      if (is_discrete_color()) {
+        cols <- unname(keypointPalette()[as.character(df$keypoint)])
+        cols[is.na(cols)] <- "grey70"
+      } else {
+        pal <- viridisLite::viridis(256)
+        idx <- pmin(pmax(round((df[[color_col()]] - s$cr[1]) / diff(s$cr) * 255) + 1, 1), 256)
+        cols <- ifelse(is.na(idx), "grey70", pal[idx])
+      }
 
       frame_dir <- tempfile("flea3d_")
       dir.create(frame_dir)
