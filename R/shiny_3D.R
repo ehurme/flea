@@ -210,6 +210,11 @@ ui <- fluidPage(
                      h4("Align to track time"),
                      numericInput("accOffset", "Offset (s): ACC start relative to track start", value = 0, step = 0.1),
                      numericInput("accNewSR", "Corrected sampling rate (Hz)", value = NA, min = 1, step = 1),
+                     sliderInput("accYOffset", "ACC vertical display offset",
+                                 min = -3, max = 3, value = -1.2, step = 0.1),
+                     helpText("Shifts the ACC trace up/down (display only, doesn't affect the data) ",
+                              "so it can be viewed as its own band below/above the track speed ",
+                              "instead of overlaid on top of it -- drag to line the two traces up in time."),
                      actionButton("autoAlign", "Auto-align (rough)"),
                      helpText("Auto-align cross-correlates ACC 'flying' bouts against track speed ",
                               "(gaps where the track is out of view are ignored, same as BORIS) to ",
@@ -654,15 +659,20 @@ server <- function(input, output, session) {
       summarise(speed = mean(speed, na.rm = TRUE), .groups = "drop") %>%
       mutate(time_s = frame / 30, y_norm = speed / max(speed, na.rm = TRUE))
 
+    # Vertical offset is display-only: shifts the ACC band up/down so it can
+    # be read as its own row instead of overlapping the track-speed line,
+    # while both still share the same x-axis (time) for lining up in time.
+    yoff <- input$accYOffset
     acc_flying <- acc %>%
       filter(is_flying) %>%
-      mutate(y_norm = VeDBA / max(VeDBA, na.rm = TRUE))
+      mutate(y_norm = VeDBA / max(VeDBA, na.rm = TRUE) + yoff)
 
     ggplot() +
+      geom_hline(yintercept = yoff, color = "firebrick", linetype = "dotted", linewidth = 0.3) +
       geom_line(data = track_speed, aes(x = time_s, y = y_norm), color = "black") +
       geom_point(data = acc_flying, aes(x = time_aligned_s, y = y_norm), color = "firebrick", alpha = 0.3) +
-      labs(x = "Track time (s)", y = "Normalized speed / VeDBA",
-           title = "Black = track speed | Red = ACC VeDBA while flying") +
+      labs(x = "Track time (s)", y = "Normalized speed (black) / VeDBA (red, offset)",
+           title = "Black = track speed | Red = ACC VeDBA while flying (drag the vertical offset slider to separate the two)") +
       theme_minimal()
   })
 
