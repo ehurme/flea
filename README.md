@@ -22,8 +22,8 @@ directly.
 - `get_peak_range()` — density-based peak range finder.
 - `to_sec()` — parse `"HH:MM:SS.xxx"` timestamps to seconds.
 
-`R/flea_flight_summary.R` (`flea_flight_summary()`) is a standalone version
-of the flight-bout summarizer used by `flanders25.R`.
+`R/flea_flight_summary.R` (`flea_flight_summary()`) is a standalone flight-bout
+summarizer (per-file spectrogram + flight periods).
 
 `R/read_flea_tag_data.R` is an older, simpler duplicate of the reader above —
 prefer `flea_functions.R`.
@@ -78,8 +78,17 @@ prefer `flea_functions.R`.
 ## Field-season analysis scripts (Flanders 2025)
 
 These are largely one-off scripts with hard-coded local/Dropbox paths, kept
-for record-keeping and re-run rather than as reusable functions:
-`flanders25.R`, `Flea_Graphs_automated.R`, `Flea_filter_test.R`,
+for record-keeping and re-run rather than as reusable functions.
+
+- `flanders25.R` — finds every FleaTag export and the metadata
+  (`Flanders_Flights_2025.xlsx` for May; file names plus an optional
+  `Flanders_Aug2025_trials.csv` for August), detects flight bouts, and compares
+  per-trial VeDBA, VeSBA, ODBA, heave amplitude, wingbeat frequency, bouts and
+  posture across trials and tag load with mixed models (random bat and tag
+  intercepts; tag absorbs clock drift). Handles multi-block exports and flags
+  duplicated downloads. Writes CSVs and figures to Dropbox, not the repo.
+
+Others: `Flea_Graphs_automated.R`, `Flea_filter_test.R`,
 `Flea_weight_comarison.R`, `Frame_segemt_Flea.R`,
 `flea_Frame_segment_Google_sheet.R`, `flea_Flight_to_CSV.R`,
 `flea_CSV_filter.R`, `flea_boxplot.R`, `assign_weights2.R`.

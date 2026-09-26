@@ -130,9 +130,9 @@ flea_flight_summary <- function(file_path, sampling_rate = NULL,
 # # test function
 # moth <- flea_flight_summary(file_path = file_path, sampling_rate = 210)
 #
-flight_summary <- moth[[1]]
-flight_times <- moth[[2]]
+# flight_summary <- moth[[1]]
+# flight_times <- moth[[2]]
 # processed_data <- moth[[3]]
-moth[[4]]
+# moth[[4]]
 
 
