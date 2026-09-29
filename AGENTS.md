@@ -19,13 +19,18 @@ build. Do not add roxygen headers expecting package-style export.
 
 ## Repository layout
 
-- `R/` — all maintained analysis scripts (33 files). Key groupings:
+- `R/` — all maintained analysis scripts (35 files). Key groupings:
   - **Core FleaTag functions** (`R/flea_functions.R`): `read_flea_tag_data()`,
     `flea_preprocess()` (static/dynamic acceleration, VeDBA/ODBA/ENMO,
     pitch/roll/yaw, rolling PCA, flying-bout detection), `flea_plot()`,
     `flea_plot_spectrogram()`, `get_true_groups()`, `get_peak_range()`,
     `to_sec()`. This is the canonical library — other files either
     `source("./R/flea_functions.R")` or copy/trim the functions they need.
+  - **Other FleaTag helpers**: `flea_flight_summary.R`
+    (`flea_flight_summary()`, per-file spectrogram + flight periods; sources
+    `flea_functions.R` itself), `run_functions.R` (minimal example driver),
+    `to_sec.R` and `read_flea_tag_data.R` (older duplicates of functions in
+    `flea_functions.R`).
   - **Shiny apps**: `shiny_3D.R` (main 3D trajectory viewer for TRex data,
     with FleaTag ACC alignment and straight-flight bout detection),
     `shiny_3D_Manual_Frames.R`, `shiny_align.R`, `align_boris_flea_shiny.R`,
@@ -38,16 +43,20 @@ build. Do not add roxygen headers expecting package-style export.
     (Phyllostomid echolocation call detection from AudioMoth WAVs).
   - **Hummingbird/PPG**: `hummingbird_wild_deployments.R`, `ppg_sensor.R`.
   - **Field-season one-offs** (hard-coded local/Dropbox paths, kept for the
-    record, not reusable): `flanders25.R`, `Flea_Graphs_automated.R`,
+    record, not reusable): `flanders25.R`, `colombia25.R`, `Flea_Graphs_automated.R`,
     `Flea_filter_test.R`, `Flea_weight_comarison.R`, `Frame_segemt_Flea.R`,
     `flea_Frame_segment_Google_sheet.R`, `flea_Flight_to_CSV.R`,
     `flea_CSV_filter.R`, `flea_boxplot.R`, `assign_weights2.R`.
   - **Simulation**: `simulate_3d_accel_vedba_analysis.R`.
 - `explore/` — scratch/exploratory scripts (PPG heart rate, AudioMoth reading,
-  spectral data, colorspace, function tests). Excluded from any packaging via
-  `.Rbuildignore`; not part of the maintained pipeline.
+  spectral data, colorspace, function tests). Not part of the maintained
+  pipeline. `explore/*` is in `.gitignore` (existing files are still
+  tracked); it is *not* in `.Rbuildignore`, which only lists `flea.Rproj` and
+  `.Rproj.user`.
 - `trex_commands.txt` — generated batch of TRex CLI commands (Windows paths),
   produced by `generate_trex_commands.R`.
+- Root `*.png` files — outputs of `simulate_3d_accel_vedba_analysis.R`.
+  `vedba_timeseries_by_rate.png` is gitignored; the other two are committed.
 - `README.md` — accurate, detailed map of every script; keep it in sync when
   adding/removing scripts.
 - `DESCRIPTION`, `NAMESPACE`, `flea.Rproj` — leftover package scaffolding, see
@@ -89,14 +98,15 @@ recorders, BORIS and BehaveAI software, Google Sheets.
   that you edit and re-run. It is normal here for multiple sibling `file_path
   <- ...` lines to be left in place with only the active one uncommented.
 - Prefer extending `R/flea_functions.R` for reusable logic. Note the
-  deliberate duplication pattern: some Shiny apps copy/trim functions from
-  `flea_functions.R` instead of `source()`ing them, explicitly to avoid
-  pulling in its `seewave`/`tuneR` dependency. When changing
-  `flea_functions.R`, check `align_boris_flea_shiny.R` and `shiny_3D.R` for
-  their inline copies and update them in parallel (comments there mark them
-  as adapted copies).
-- `R/read_flea_tag_data.R` is an older duplicate of the reader in
-  `flea_functions.R` — prefer the latter.
+  deliberate duplication pattern: `shiny_3D.R` keeps trimmed copies of
+  `get_true_groups()`, `read_flea_tag_data()` and `flea_preprocess()` instead
+  of `source()`ing `flea_functions.R`, explicitly to avoid pulling in its
+  `seewave`/`tuneR` dependency (comments there mark them as adapted copies).
+  When changing `flea_functions.R`, update those copies in parallel. Other
+  apps (`align_boris_flea_shiny.R`, `shiny_fleatag.R`) `source()` it and pick
+  up changes automatically.
+- `R/read_flea_tag_data.R` and `R/to_sec.R` are older duplicates of functions
+  in `flea_functions.R` — prefer the latter.
 
 ## Data and security considerations
 

@@ -88,6 +88,16 @@ for record-keeping and re-run rather than as reusable functions.
   intercepts; tag absorbs clock drift). Handles multi-block exports and flags
   duplicated downloads. Writes CSVs and figures to Dropbox, not the repo.
 
+## Field-season analysis scripts (Colombia 2025)
+
+- `colombia25.R` — the same trial/load comparison as `flanders25.R` for the
+  Finca (BiC) flight-cage trials in `Colombia25/Data`. It parses
+  `date_time_TAG_Sp_BAT_TrialN.txt` names, takes loads (tag + housing + velcro)
+  from the `FlightCage` sheet of `Finca_Flights_2025.xlsx`, uses the tag ID in
+  the file header over the one in the file name, drops malformed rows, and
+  adds species as a fixed covariate in the mixed models. Writes CSVs and
+  figures to `Colombia25/Results/acc_trial_comparison` on Dropbox.
+
 Others: `Flea_Graphs_automated.R`, `Flea_filter_test.R`,
 `Flea_weight_comarison.R`, `Frame_segemt_Flea.R`,
 `flea_Frame_segment_Google_sheet.R`, `flea_Flight_to_CSV.R`,
