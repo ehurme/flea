@@ -484,3 +484,115 @@ to_sec <- function(x) {
   h*3600 + m*60 + s
 }
 
+
+# ---- Hummingbird flight classifiers -----------------------------------------
+# Shared by R/hummingbird_activity_budget.R (wild deployments) and
+# R/hummingbird_captive_validation.R (captive trials with BORIS video labels).
+# Thresholds are in g; see the header of hummingbird_activity_budget.R for
+# how they were chosen.
+
+# FleaTag .txt export (data between the lineCnt header and the "Delete memory"
+# line) in g, with summed RGB light and the header keys used downstream
+read_flea_export <- function(path) {
+  l <- readLines(path, warn = FALSE)
+  h <- grep("^lineCnt", l)[1]
+  e <- grep("^Delete memory", l)[1]
+  if (is.na(e)) e <- length(l) + 1
+  d <- fread(text = l[h:(e - 1)])
+  d[, `:=`(x = accX_mg / 1000, y = accY_mg / 1000, z = accZ_mg / 1000,
+           light = ColorSensRed_cnt + ColorSensGreen_cnt + ColorSensBlue_cnt)]
+  key <- function(k) trimws(sub(paste0("^", k, ":"), "", grep(paste0("^", k, ":"), l, value = TRUE)[1]))
+  list(data = d, hz = as.numeric(key("AccHz")), mode = sub(".*V14: ", "", grep("V14:", l, value = TRUE)[1]),
+       tag = toupper(key("ID")))
+}
+
+# frequency of the largest spectral peak of x within band (Hz, nominal clock)
+dominant_freq <- function(x, sr, band = c(15, 50)) {
+  s <- spec.pgram(ts(x, frequency = sr), taper = 0.1, pad = 3, detrend = TRUE, plot = FALSE)
+  ok <- s$freq >= band[1] & s$freq <= band[2]
+  s$freq[ok][which.max(s$spec[ok])]
+}
+
+# wingbeat frequency = peak of the spectrum summed over the three axes. In the
+# captive trials the fundamental (21-32 Hz) is mostly on z and its 2nd
+# harmonic (fore-aft, twice per stroke) on x; the first PC follows whichever
+# axis has most variance and often lands on the harmonic, the summed spectrum
+# does not.
+wingbeat_freq <- function(a, sr, band = c(15, 50)) {
+  a <- sweep(as.matrix(a), 2, colMeans(a))
+  s <- spec.pgram(ts(a, frequency = sr), taper = 0.1, pad = 3, detrend = TRUE, plot = FALSE)
+  ok <- s$freq >= band[1] & s$freq <= band[2]
+  s$freq[ok][which.max(rowSums(as.matrix(s$spec))[ok])]
+}
+
+# one row per burst: dynamic SD over the whole burst, wingbeat frequency,
+# clipping, light; flight = dyn_sd > flight_g
+classify_bursts <- function(d, sr, flight_g = 1, flight_g_lo = 0.5, band = c(15, 50)) {
+  d[, {
+    a <- cbind(x, y, z)
+    dyn_sd <- sqrt(sum(apply(a, 2, var)))
+    .(t_s = timeMilliseconds[1] / 1000, dyn_sd = dyn_sd,
+      wbf_hz = wingbeat_freq(a, sr, band),
+      clipped = mean(abs(a) >= 7.9),
+      light = light[.N])
+  }, by = burstCount][, `:=`(fly = dyn_sd > flight_g, fly_lo = dyn_sd > flight_g_lo)]
+}
+
+# sample-level flight/perch for high-rate data: running dynamic SD over win_s
+# (~3 wingbeats) with hysteresis (flight above on_g, perched below off_g);
+# flight runs that never reach peak_g are perched movements (shakes), and
+# interior runs shorter than min_run_s are merged into their neighbours.
+# Returns dyn and fly (NA where the centred window is incomplete).
+flight_segment <- function(x, y, z, sr, win_s = 0.1, on_g = 1, off_g = 0.5,
+                           peak_g = 2, min_run_s = 0.1) {
+  w <- max(3, round(win_s * sr))
+  k <- round(min_run_s * sr)
+  dyn <- sqrt(frollapply(x, w, var, align = "center") + frollapply(y, w, var, align = "center") +
+                frollapply(z, w, var, align = "center"))
+  fly <- rep(NA, length(x))
+  ok <- which(!is.na(dyn))
+  if (!length(ok)) return(list(dyn = dyn, fly = fly))
+  dv <- dyn[ok]
+  s <- logical(length(dv))
+  state <- dv[1] > (on_g + off_g) / 2
+  for (i in seq_along(dv)) {
+    if (state && dv[i] < off_g) state <- FALSE else if (!state && dv[i] > on_g) state <- TRUE
+    s[i] <- state
+  }
+  r <- rle(s)
+  e <- cumsum(r$lengths); b <- e - r$lengths + 1
+  weak <- which(r$values & mapply(function(i, j) max(dv[i:j]), b, e) < peak_g)
+  if (length(weak)) { r$values[weak] <- FALSE; s <- inverse.rle(r); r <- rle(s) }
+  short <- which(r$lengths < k)
+  short <- short[short > 1 & short < length(r$lengths)]  # runs touching the edge are truncated, keep them
+  if (length(short)) { r$values[short] <- !r$values[short]; s <- inverse.rle(r) }
+  fly[ok] <- s
+  list(dyn = dyn, fly = fly)
+}
+
+# per burst: observed time, flight time, take-offs (n_on) and landings (n_off)
+within_burst <- function(d, sr, ...) {
+  d[, {
+    s <- flight_segment(x, y, z, sr, ...)$fly
+    s <- s[!is.na(s)]
+    sw <- diff(s)
+    .(t_obs_s = length(s) / sr, t_fly_s = sum(s) / sr, n_on = sum(sw == 1), n_off = sum(sw == -1))
+  }, by = burstCount]
+}
+
+# 0.45 Hz continuous mode, one row per sample: each sample is a random phase of
+# the wingbeat cycle, so flight = ||a| - 1 g| > flight_g, extended to samples
+# that jump > flight_g from both neighbours next to such a sample (an isolated
+# jump is a one-sample transient on the perch); single-sample gaps are filled
+classify_continuous <- function(d, flight_g = 0.5) {
+  d <- d[, .(burstCount, t_s = timeMilliseconds / 1000, x, y, z, light)]
+  d[, light := nafill(light, type = "nocb")]  # light is logged at the end of each burst
+  d[, dmag := abs(sqrt(x^2 + y^2 + z^2) - 1)]
+  d[, dprev := sqrt((x - shift(x))^2 + (y - shift(y))^2 + (z - shift(z))^2)]
+  d[, dnext := shift(dprev, -1)]
+  d[, fly_mag := dmag > flight_g]
+  d[, fly := fly_mag | (coalesce(dprev, 0) > flight_g & coalesce(dnext, 0) > flight_g &
+                          (coalesce(shift(fly_mag), FALSE) | coalesce(shift(fly_mag, -1), FALSE)))]
+  d[, fly := fly | (!fly & coalesce(shift(fly), FALSE) & coalesce(shift(fly, -1), FALSE))]
+  d
+}

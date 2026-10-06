@@ -22,8 +22,8 @@ directly.
 - `get_peak_range()` — density-based peak range finder.
 - `to_sec()` — parse `"HH:MM:SS.xxx"` timestamps to seconds.
 
-`R/flea_flight_summary.R` (`flea_flight_summary()`) is a standalone version
-of the flight-bout summarizer used by `flanders25.R`.
+`R/flea_flight_summary.R` (`flea_flight_summary()`) is a standalone flight-bout
+summarizer (per-file spectrogram + flight periods).
 
 `R/read_flea_tag_data.R` is an older, simpler duplicate of the reader above —
 prefer `flea_functions.R`.
@@ -73,13 +73,40 @@ prefer `flea_functions.R`.
 
 - `hummingbird_wild_deployments.R` — batch FleaTag processing for wild
   hummingbird deployments.
+- `hummingbird_activity_budget.R` — daily activity budgets for the WIN 2025
+  wild hummingbird deployments: classifies flight vs. perching per burst
+  (105/210 Hz tags) or per sample (0.45 Hz tags), trims to release–recapture
+  using the deployment sheet, corrects each tag's clock rate from light-sensor
+  dusk/dawn anchors (solar altitude via `suncalc`), defines day by the light
+  threshold, estimates flight bout durations (counted at 0.45 Hz; from
+  take-offs/landings inside bursts at 105/210 Hz), and writes CSVs and figures
+  to `Colombia25/Hummingbird/WIN 2025/Results/activity_budget` on Dropbox.
 - `ppg_sensor.R` — PPG (photoplethysmography) sensor data exploration.
 
 ## Field-season analysis scripts (Flanders 2025)
 
 These are largely one-off scripts with hard-coded local/Dropbox paths, kept
-for record-keeping and re-run rather than as reusable functions:
-`flanders25.R`, `Flea_Graphs_automated.R`, `Flea_filter_test.R`,
+for record-keeping and re-run rather than as reusable functions.
+
+- `flanders25.R` — finds every FleaTag export and the metadata
+  (`Flanders_Flights_2025.xlsx` for May; file names plus an optional
+  `Flanders_Aug2025_trials.csv` for August), detects flight bouts, and compares
+  per-trial VeDBA, VeSBA, ODBA, heave amplitude, wingbeat frequency, bouts and
+  posture across trials and tag load with mixed models (random bat and tag
+  intercepts; tag absorbs clock drift). Handles multi-block exports and flags
+  duplicated downloads. Writes CSVs and figures to Dropbox, not the repo.
+
+## Field-season analysis scripts (Colombia 2025)
+
+- `colombia25.R` — the same trial/load comparison as `flanders25.R` for the
+  Finca (BiC) flight-cage trials in `Colombia25/Data`. It parses
+  `date_time_TAG_Sp_BAT_TrialN.txt` names, takes loads (tag + housing + velcro)
+  from the `FlightCage` sheet of `Finca_Flights_2025.xlsx`, uses the tag ID in
+  the file header over the one in the file name, drops malformed rows, and
+  adds species as a fixed covariate in the mixed models. Writes CSVs and
+  figures to `Colombia25/Results/acc_trial_comparison` on Dropbox.
+
+Others: `Flea_Graphs_automated.R`, `Flea_filter_test.R`,
 `Flea_weight_comarison.R`, `Frame_segemt_Flea.R`,
 `flea_Frame_segment_Google_sheet.R`, `flea_Flight_to_CSV.R`,
 `flea_CSV_filter.R`, `flea_boxplot.R`, `assign_weights2.R`.
