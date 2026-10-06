@@ -73,6 +73,14 @@ prefer `flea_functions.R`.
 
 - `hummingbird_wild_deployments.R` — batch FleaTag processing for wild
   hummingbird deployments.
+- `hummingbird_activity_budget.R` — daily activity budgets for the WIN 2025
+  wild hummingbird deployments: classifies flight vs. perching per burst
+  (105/210 Hz tags) or per sample (0.45 Hz tags), trims to release–recapture
+  using the deployment sheet, corrects each tag's clock rate from light-sensor
+  dusk/dawn anchors (solar altitude via `suncalc`), defines day by the light
+  threshold, estimates flight bout durations (counted at 0.45 Hz; from
+  take-offs/landings inside bursts at 105/210 Hz), and writes CSVs and figures
+  to `Colombia25/Hummingbird/WIN 2025/Results/activity_budget` on Dropbox.
 - `ppg_sensor.R` — PPG (photoplethysmography) sensor data exploration.
 
 ## Field-season analysis scripts (Flanders 2025)

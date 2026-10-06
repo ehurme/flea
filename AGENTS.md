@@ -19,7 +19,7 @@ build. Do not add roxygen headers expecting package-style export.
 
 ## Repository layout
 
-- `R/` — all maintained analysis scripts (35 files). Key groupings:
+- `R/` — all maintained analysis scripts (36 files). Key groupings:
   - **Core FleaTag functions** (`R/flea_functions.R`): `read_flea_tag_data()`,
     `flea_preprocess()` (static/dynamic acceleration, VeDBA/ODBA/ENMO,
     pitch/roll/yaw, rolling PCA, flying-bout detection), `flea_plot()`,
@@ -41,7 +41,8 @@ build. Do not add roxygen headers expecting package-style export.
     `plot3d.R`, `hb_trex.R`.
   - **Audio**: `Process_audiomoth.R`, `Process_audiomoth_segment.R`
     (Phyllostomid echolocation call detection from AudioMoth WAVs).
-  - **Hummingbird/PPG**: `hummingbird_wild_deployments.R`, `ppg_sensor.R`.
+  - **Hummingbird/PPG**: `hummingbird_wild_deployments.R`,
+    `hummingbird_activity_budget.R`, `ppg_sensor.R`.
   - **Field-season one-offs** (hard-coded local/Dropbox paths, kept for the
     record, not reusable): `flanders25.R`, `colombia25.R`, `Flea_Graphs_automated.R`,
     `Flea_filter_test.R`, `Flea_weight_comarison.R`, `Frame_segemt_Flea.R`,
