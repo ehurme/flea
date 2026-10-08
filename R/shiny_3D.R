@@ -139,6 +139,10 @@ flea_preprocess <- function(data,
   data
 }
 
+# Shiny's default upload cap is 5MB, which some FleaTag ACC exports and
+# longer track CSVs exceed; raise it to 200MB for both fileInput()s.
+options(shiny.maxRequestSize = 200 * 1024^2)
+
 ui <- fluidPage(
   titlePanel("3D Trajectory Viewer"),
 
@@ -154,13 +158,31 @@ ui <- fluidPage(
       checkboxInput("showSkeleton", "Connect keypoints at current frame (skeleton)", FALSE),
       checkboxInput("fadeTrail", "Fade trail by recency", TRUE),
       sliderInput("xrange", "X Range (m)", min = -10, max = 10, value = c(-2, 2)),
+      fluidRow(
+        column(6, numericInput("xrangeMin", "X min", value = -2)),
+        column(6, numericInput("xrangeMax", "X max", value = 2))
+      ),
       sliderInput("yrange", "Y Range (m)", min = -10, max = 10, value = c(-1, 2)),
+      fluidRow(
+        column(6, numericInput("yrangeMin", "Y min", value = -1)),
+        column(6, numericInput("yrangeMax", "Y max", value = 2))
+      ),
       sliderInput("zrange", "Z Range (m)", min = -10, max = 10, value = c(-3, 3)),
+      fluidRow(
+        column(6, numericInput("zrangeMin", "Z min", value = -3)),
+        column(6, numericInput("zrangeMax", "Z max", value = 3))
+      ),
       sliderInput("maxspeed", "Max Speed (m/s)", min = 0, max = 50, value = 10),
+      numericInput("maxspeedNum", "Max Speed (m/s, typed)", value = 10, min = 0),
 
       # frame slider with 60 FPS
       sliderInput("frame", "frame", min = 0, max = 100, value = 0, step = 1,
                   animate = animationOptions(interval = 1000/10, loop = TRUE)),
+      fluidRow(
+        column(6, numericInput("frameStartInput", "Range start frame", value = NA)),
+        column(6, numericInput("frameEndInput", "Range end frame", value = NA))
+      ),
+      helpText("Typing both start/end frame above selects that range, same as brushing the timeline below."),
 
       hr(),
       downloadButton("downloadCSV", "Download filtered data (CSV)"),
@@ -269,6 +291,35 @@ server <- function(input, output, session) {
     df
   })
 
+  # Programmatic range pushes (data load, speed-threshold auto-range) are
+  # recorded here so the manual-edit observers below can tell "we just set
+  # this ourselves" apart from the user actually dragging/typing a value.
+  progRange <- reactiveValues(x = NULL, y = NULL, z = NULL)
+  xyzManual <- reactiveValues(x = FALSE, y = FALSE, z = FALSE)
+
+  setXRange <- function(rng) {
+    progRange$x <- rng
+    updateSliderInput(session, "xrange", value = rng)
+    updateNumericInput(session, "xrangeMin", value = rng[1])
+    updateNumericInput(session, "xrangeMax", value = rng[2])
+  }
+  setYRange <- function(rng) {
+    progRange$y <- rng
+    updateSliderInput(session, "yrange", value = rng)
+    updateNumericInput(session, "yrangeMin", value = rng[1])
+    updateNumericInput(session, "yrangeMax", value = rng[2])
+  }
+  setZRange <- function(rng) {
+    progRange$z <- rng
+    updateSliderInput(session, "zrange", value = rng)
+    updateNumericInput(session, "zrangeMin", value = rng[1])
+    updateNumericInput(session, "zrangeMax", value = rng[2])
+  }
+  setMaxSpeed <- function(v) {
+    updateSliderInput(session, "maxspeed", value = v)
+    updateNumericInput(session, "maxspeedNum", value = v)
+  }
+
   # Update frame slider, keypoints, and spatial/speed ranges to match uploaded data
   observe({
     df <- data()
@@ -283,12 +334,95 @@ server <- function(input, output, session) {
     xr <- range(df$x, na.rm = TRUE)
     yr <- range(df$y, na.rm = TRUE)
     zr <- range(df$z, na.rm = TRUE)
-    maxspd <- max(df$speed, na.rm = TRUE)
+    maxspd <- ceiling(max(df$speed, na.rm = TRUE))
 
-    updateSliderInput(session, "xrange", min = floor(xr[1]), max = ceiling(xr[2]), value = xr)
-    updateSliderInput(session, "yrange", min = floor(yr[1]), max = ceiling(yr[2]), value = yr)
-    updateSliderInput(session, "zrange", min = floor(zr[1]), max = ceiling(zr[2]), value = zr)
-    updateSliderInput(session, "maxspeed", max = ceiling(maxspd), value = ceiling(maxspd))
+    updateSliderInput(session, "xrange", min = floor(xr[1]), max = ceiling(xr[2]))
+    updateSliderInput(session, "yrange", min = floor(yr[1]), max = ceiling(yr[2]))
+    updateSliderInput(session, "zrange", min = floor(zr[1]), max = ceiling(zr[2]))
+    updateSliderInput(session, "maxspeed", max = maxspd)
+
+    # New file: nothing manually overridden yet, so x/y/z stay free to
+    # auto-track the speed threshold (see observer below).
+    xyzManual$x <- FALSE
+    xyzManual$y <- FALSE
+    xyzManual$z <- FALSE
+    setXRange(xr)
+    setYRange(yr)
+    setZRange(zr)
+    setMaxSpeed(maxspd)
+  })
+
+  # Manual-edit detection: a slider value that doesn't match what we last
+  # pushed programmatically means the user dragged it -- stop auto-tracking
+  # that axis when the speed threshold changes.
+  observeEvent(input$xrange, ignoreInit = TRUE, {
+    if (is.null(progRange$x) || !isTRUE(all.equal(as.numeric(input$xrange), as.numeric(progRange$x), tolerance = 1e-6)))
+      xyzManual$x <- TRUE
+  })
+  observeEvent(input$yrange, ignoreInit = TRUE, {
+    if (is.null(progRange$y) || !isTRUE(all.equal(as.numeric(input$yrange), as.numeric(progRange$y), tolerance = 1e-6)))
+      xyzManual$y <- TRUE
+  })
+  observeEvent(input$zrange, ignoreInit = TRUE, {
+    if (is.null(progRange$z) || !isTRUE(all.equal(as.numeric(input$zrange), as.numeric(progRange$z), tolerance = 1e-6)))
+      xyzManual$z <- TRUE
+  })
+
+  # Typed min/max boxes -- always a deliberate manual edit (outliers make
+  # the sliders hard to drag precisely, this is the point of these fields).
+  observeEvent(input$xrangeMin, ignoreInit = TRUE, {
+    req(!is.na(input$xrangeMin))
+    xyzManual$x <- TRUE
+    rng <- c(input$xrangeMin, input$xrange[2])
+    if (rng[1] <= rng[2]) setXRange(rng)
+  })
+  observeEvent(input$xrangeMax, ignoreInit = TRUE, {
+    req(!is.na(input$xrangeMax))
+    xyzManual$x <- TRUE
+    rng <- c(input$xrange[1], input$xrangeMax)
+    if (rng[1] <= rng[2]) setXRange(rng)
+  })
+  observeEvent(input$yrangeMin, ignoreInit = TRUE, {
+    req(!is.na(input$yrangeMin))
+    xyzManual$y <- TRUE
+    rng <- c(input$yrangeMin, input$yrange[2])
+    if (rng[1] <= rng[2]) setYRange(rng)
+  })
+  observeEvent(input$yrangeMax, ignoreInit = TRUE, {
+    req(!is.na(input$yrangeMax))
+    xyzManual$y <- TRUE
+    rng <- c(input$yrange[1], input$yrangeMax)
+    if (rng[1] <= rng[2]) setYRange(rng)
+  })
+  observeEvent(input$zrangeMin, ignoreInit = TRUE, {
+    req(!is.na(input$zrangeMin))
+    xyzManual$z <- TRUE
+    rng <- c(input$zrangeMin, input$zrange[2])
+    if (rng[1] <= rng[2]) setZRange(rng)
+  })
+  observeEvent(input$zrangeMax, ignoreInit = TRUE, {
+    req(!is.na(input$zrangeMax))
+    xyzManual$z <- TRUE
+    rng <- c(input$zrange[1], input$zrangeMax)
+    if (rng[1] <= rng[2]) setZRange(rng)
+  })
+
+  observeEvent(input$maxspeedNum, ignoreInit = TRUE, {
+    req(!is.na(input$maxspeedNum))
+    if (!isTRUE(all.equal(input$maxspeedNum, input$maxspeed))) setMaxSpeed(input$maxspeedNum)
+  })
+
+  # Speed threshold changed (slider drag or typed box, both land on
+  # input$maxspeed): re-derive x/y/z ranges from points that pass the new
+  # threshold, but only for axes the user hasn't manually overridden.
+  observeEvent(input$maxspeed, ignoreInit = TRUE, {
+    df <- data()
+    req(nrow(df) > 0)
+    df <- df %>% filter(is.na(speed) | speed <= input$maxspeed)
+    if (nrow(df) == 0) return(invisible(NULL))
+    if (!xyzManual$x) setXRange(range(df$x, na.rm = TRUE))
+    if (!xyzManual$y) setYRange(range(df$y, na.rm = TRUE))
+    if (!xyzManual$z) setZRange(range(df$z, na.rm = TRUE))
   })
 
   # Custom frame-range selection from brushing the timeline; overrides the
@@ -298,11 +432,24 @@ server <- function(input, output, session) {
   observeEvent(input$timelineBrush, {
     b <- input$timelineBrush
     req(b)
-    selRange(c(floor(b$xmin), ceiling(b$xmax)))
+    rng <- c(floor(b$xmin), ceiling(b$xmax))
+    selRange(rng)
+    updateNumericInput(session, "frameStartInput", value = rng[1])
+    updateNumericInput(session, "frameEndInput", value = rng[2])
   })
 
   observeEvent(input$clearBrush, {
     selRange(NULL)
+    updateNumericInput(session, "frameStartInput", value = NA)
+    updateNumericInput(session, "frameEndInput", value = NA)
+  })
+
+  # Manual start/end frame entry -- same effect as brushing the timeline.
+  observeEvent(c(input$frameStartInput, input$frameEndInput), ignoreInit = TRUE, ignoreNULL = TRUE, {
+    s <- input$frameStartInput
+    e <- input$frameEndInput
+    if (is.na(s) || is.na(e) || s > e) return(invisible(NULL))
+    selRange(c(s, e))
   })
 
   # Column backing the selected color field -- mapping this to an actual
@@ -354,9 +501,19 @@ server <- function(input, output, session) {
     # plotting, so geom_path/plot_ly would draw a spurious connecting line
     # between different flea IDs (and between different keypoints) whenever
     # more than one was selected. `grp` gives each id+keypoint its own line.
+    #
+    # Bug fix: filtering (speed/xyz range/frame range) can drop the middle
+    # of a track, leaving two disjoint runs of frames within the same
+    # id+keypoint. Without a further split, geom_path/plot_ly still drew one
+    # continuous line straight across the gap -- connecting the end of one
+    # run to the start of the next. `seg` bumps whenever frames aren't
+    # contiguous, and gets folded into `grp` so each run gets its own line.
     df %>%
-      mutate(grp = interaction(id, keypoint, drop = TRUE)) %>%
-      arrange(id, keypoint, frame)
+      arrange(id, keypoint, frame) %>%
+      group_by(id, keypoint) %>%
+      mutate(seg = cumsum(c(TRUE, diff(frame) > 1))) %>%
+      ungroup() %>%
+      mutate(grp = interaction(id, keypoint, seg, drop = TRUE))
   })
 
   # Filtered data further narrowed to the trailing window around the current
@@ -802,7 +959,7 @@ server <- function(input, output, session) {
     discrete <- is_discrete_color()
     pal <- keypointPalette()
 
-    p <- plot_ly()
+    p <- plot_ly(source = "plot3d")
     for (i in seq_along(ids)) {
       d_i <- s$df_breaks %>% filter(id == ids[i])
       marker <- if (discrete) {
@@ -838,25 +995,54 @@ server <- function(input, output, session) {
       zaxis = list(title = paste0("Height (", input$units, ")"), range = input$yrange * s$m),
       aspectmode = "manual",
       aspectratio = s$aspectratio
-    ))
+    )) %>% event_register("plotly_relayout")
+  })
+
+  # Tracks the 3D view's current camera eye vector, so the GIF export can
+  # start from whatever the user is currently looking at instead of a fixed
+  # angle. plotly's plot3d trace axes (x=~x, y=~z, z=~y) use the same
+  # x/y/z-as-height mapping as the rgl scene built for the GIF
+  # (plot3d(df$x, df$z, df$y, ...)), so the eye vector carries over directly
+  # without remapping axes.
+  cameraEye <- reactiveVal(list(x = 1.25, y = 1.25, z = 1.25))
+
+  observeEvent(event_data("plotly_relayout", source = "plot3d"), {
+    ed <- event_data("plotly_relayout", source = "plot3d")
+    eye <- ed[["scene.camera"]]$eye
+    if (is.null(eye)) {
+      ex <- ed[["scene.camera.eye.x"]]
+      ey <- ed[["scene.camera.eye.y"]]
+      ez <- ed[["scene.camera.eye.z"]]
+      if (!is.null(ex) && !is.null(ey) && !is.null(ez)) eye <- list(x = ex, y = ey, z = ez)
+    }
+    req(eye)
+    cameraEye(eye)
   })
 
   # Camera presets for the 3D view
   observeEvent(input$camTop, {
+    eye <- list(x = 0, y = 0, z = 2.5)
+    cameraEye(eye)
     plotlyProxy("plot3d", session) %>%
-      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = list(x = 0, y = 0, z = 2.5))))
+      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = eye)))
   })
   observeEvent(input$camFront, {
+    eye <- list(x = 0, y = -2.5, z = 0)
+    cameraEye(eye)
     plotlyProxy("plot3d", session) %>%
-      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = list(x = 0, y = -2.5, z = 0))))
+      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = eye)))
   })
   observeEvent(input$camSide, {
+    eye <- list(x = 2.5, y = 0, z = 0)
+    cameraEye(eye)
     plotlyProxy("plot3d", session) %>%
-      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = list(x = 2.5, y = 0, z = 0))))
+      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = eye)))
   })
   observeEvent(input$camReset, {
+    eye <- list(x = 1.25, y = 1.25, z = 1.25)
+    cameraEye(eye)
     plotlyProxy("plot3d", session) %>%
-      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = list(x = 1.25, y = 1.25, z = 1.25))))
+      plotlyProxyInvoke("relayout", scene = list(camera = list(eye = eye)))
   })
 
   # Rotating GIF export, rendered offscreen with rgl (same package used
@@ -886,7 +1072,15 @@ server <- function(input, output, session) {
       dir.create(frame_dir)
       on.exit(unlink(frame_dir, recursive = TRUE), add = TRUE)
 
-      rgl::open3d(useNULL = TRUE)
+      # Bug fix: open3d(useNULL = TRUE) renders to an offscreen/null device
+      # with no real front buffer, so the native OpenGL readback that
+      # snapshot3d() falls back to (webshot = TRUE also fell back here,
+      # since it needs the separate webshot2 package + Chrome) reads back
+      # nothing but black -- confirmed by the "Inserting image..." / "done"
+      # gifski output still succeeding despite blank frames. Use a real
+      # (visible) rgl window instead, same as R/smooth3D_gaps.R -- a real
+      # front buffer is what native snapshot3d actually needs.
+      rgl::open3d(windowRect = c(0, 0, 800, 600))
       on.exit(rgl::close3d(), add = TRUE)
       rgl::bg3d("white")
       rgl::plot3d(df$x, df$z, df$y, col = cols, size = 6, type = "p",
@@ -905,11 +1099,22 @@ server <- function(input, output, session) {
         }
       }
 
-      # Oscillate azimuth back and forth rather than spinning all the way around
-      angles <- c(seq(-20, 20, length.out = 15), seq(20, -20, length.out = 15))
+      # Base the oscillation on the 3D tab's current camera instead of a
+      # fixed angle. plotly's eye vector and rgl's theta/phi both use the
+      # height axis as "up" here (see cameraEye() above), so converting the
+      # eye vector to spherical angles gives a reasonable rgl equivalent --
+      # not frame-for-frame identical (different renderers/projections),
+      # but the same general viewpoint instead of a hardcoded look.
+      eye <- cameraEye()
+      base_theta <- atan2(eye$x, -eye$y) * 180 / pi
+      base_phi <- atan2(eye$z, sqrt(eye$x^2 + eye$y^2)) * 180 / pi
+
+      # Oscillate azimuth back and forth around that viewpoint rather than
+      # spinning all the way around
+      angles <- base_theta + c(seq(-20, 20, length.out = 15), seq(20, -20, length.out = 15))
       png_files <- file.path(frame_dir, sprintf("frame_%03d.png", seq_along(angles)))
       for (i in seq_along(angles)) {
-        rgl::view3d(theta = angles[i], phi = 15, fov = 30)
+        rgl::view3d(theta = angles[i], phi = base_phi, fov = 30)
         rgl::snapshot3d(png_files[i], width = 800, height = 600, webshot = FALSE)
       }
 
