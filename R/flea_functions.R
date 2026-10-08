@@ -596,3 +596,91 @@ classify_continuous <- function(d, flight_g = 0.5) {
   d[, fly := fly | (!fly & coalesce(shift(fly), FALSE) & coalesce(shift(fly, -1), FALSE))]
   d
 }
+
+# Window / burst features for behaviour classification and flight intensity
+# (R/hummingbird_behaviour_separability.R, R/hummingbird_flight_intensity.R).
+# a: n x 3 acceleration (g) of one burst or window; sr: sampling rate (Hz,
+# preferably the true rate). Groups: amplitude, posture (static acceleration
+# and its stability), spectral, and coordination between axes at the wingbeat
+# frequency. See the header of hummingbird_behaviour_separability.R.
+burst_features <- function(a, sr, band = c(15, 50), clip_g = 7.9) {
+  ang <- function(u, w, abs_cos = FALSE) {
+    cs <- sum(u * w) / sqrt(sum(u^2) * sum(w^2))
+    acos(pmax(-1, pmin(1, if (abs_cos) abs(cs) else cs))) * 180 / pi
+  }
+  m <- colMeans(a)
+  dyn <- sweep(a, 2, m)
+  vv <- apply(dyn, 2, var)
+  vedba <- sqrt(rowSums(dyn^2))
+  s <- spec.pgram(ts(dyn, frequency = sr), spans = 3, taper = 0.1, pad = 1, detrend = TRUE, plot = FALSE)
+  P <- s$spec; fr <- s$freq; tot <- rowSums(P)
+  inb <- fr >= band[1] & fr <= band[2]
+  i0 <- which(inb)[which.max(tot[inb])]; f0 <- fr[i0]
+  near <- function(f) abs(fr - f) <= 2
+  p_f0 <- colSums(P[near(f0), , drop = FALSE])
+  p_2f <- if (2 * f0 + 2 < sr / 2) colSums(P[near(2 * f0), , drop = FALSE]) else rep(NA_real_, 3)
+  wide <- fr >= 10 & fr <= min(60, sr / 2)
+  ps <- tot[wide] / sum(tot[wide])
+  k <- max(3, round(sr / f0))  # one wingbeat
+  st <- apply(a, 2, frollmean, n = k, align = "center")
+  st <- st[complete.cases(st), , drop = FALSE]
+  h <- nrow(st) %/% 2
+  pc <- prcomp(dyn)
+  ev <- pc$sdev^2 / sum(pc$sdev^2)
+  cr <- cor(dyn)
+  data.frame(
+    log_dyn = log10(sqrt(sum(vv)) + 0.01), dyn_sd = sqrt(sum(vv)),
+    vedba = mean(vedba), odba = mean(rowSums(abs(dyn))),
+    peak_g = max(sqrt(rowSums(a^2))), clip_frac = mean(abs(a) >= clip_g),
+    amp_x = sqrt(p_f0[1]), amp_y = sqrt(p_f0[2]), amp_z = sqrt(p_f0[3]),
+    share_x = vv[1] / sum(vv), share_y = vv[2] / sum(vv), share_z = vv[3] / sum(vv),
+    jerk = mean(sqrt(rowSums(diff(a)^2))) * sr,
+    vedba_cv = sd(vedba) / mean(vedba),
+    kurt_vedba = mean((vedba - mean(vedba))^4) / var(vedba)^2,
+    mean_x = m[1], mean_y = m[2], mean_z = m[3], static_g = sqrt(sum(m^2)),
+    pitch_deg = atan2(m[1], sqrt(m[2]^2 + m[3]^2)) * 180 / pi,
+    roll_deg = atan2(m[2], m[3]) * 180 / pi,
+    drift_deg = if (h >= 2) ang(colMeans(st[1:h, , drop = FALSE]), colMeans(st[(h + 1):nrow(st), , drop = FALSE])) else NA_real_,
+    static_sd = sqrt(sum(apply(st, 2, var))),
+    static_mag_sd = sd(sqrt(rowSums(st^2))),
+    wbf_hz = f0,
+    harm_ratio = log10(sum(p_2f) / sum(p_f0)),
+    harm_x = log10(p_2f[1] / p_f0[1]), harm_z = log10(p_2f[3] / p_f0[3]),
+    peak_frac = sum(tot[near(f0)]) / sum(tot[wide]),
+    spec_entropy = -sum(ps * log(ps)) / log(length(ps)),
+    corr_xy = cr[1, 2], corr_xz = cr[1, 3], corr_yz = cr[2, 3],
+    coh_xy = s$coh[i0, 1], coh_xz = s$coh[i0, 2], coh_yz = s$coh[i0, 3],
+    cos_ph_xy = cos(s$phase[i0, 1]), cos_ph_xz = cos(s$phase[i0, 2]), cos_ph_yz = cos(s$phase[i0, 3]),
+    sin_ph_xy = sin(s$phase[i0, 1]), sin_ph_xz = sin(s$phase[i0, 2]), sin_ph_yz = sin(s$phase[i0, 3]),
+    pc1_frac = ev[1], pc2_frac = ev[2],
+    stroke_grav_deg = ang(pc$rotation[, 1], m, abs_cos = TRUE),
+    row.names = NULL)
+}
+
+# BORIS labels of the captive hummingbird trials at video times v (s).
+# bb: events with columns behavior, start, stop, where Feed is already split
+# by its BORIS modifier into "Feed (hovering)" and "Feed (perched)" (see
+# R/hummingbird_captive_validation.R). The behaviours are hierarchical
+# (Flight > Hovering > Feed (hovering); Perch > Feed (perched), Grooming), so
+# each time point gets one exclusive state, most specific first.
+#   top   Flight / Perch / NA (not annotated)
+#   state one of hb_state_levels, NA where top is NA
+hb_state_levels <- c("Other flight", "Hovering", "Hover-feeding", "Still perch", "Grooming", "Perched feeding")
+hb_boris_state <- function(v, bb) {
+  mark <- function(b) {
+    x <- rep(FALSE, length(v)); e <- bb[bb$behavior == b, ]
+    for (i in seq_len(nrow(e))) x[v >= e$start[i] & v < e$stop[i]] <- TRUE
+    x
+  }
+  top <- rep(NA_character_, length(v))
+  top[mark("Flight")] <- "Flight"
+  top[mark("Perch")] <- "Perch"
+  hov <- mark("Hovering"); hfeed <- mark("Feed (hovering)"); pfeed <- mark("Feed (perched)"); groom <- mark("Grooming")
+  state <- dplyr::case_when(top == "Flight" & hfeed ~ "Hover-feeding",
+                            top == "Flight" & hov ~ "Hovering",
+                            top == "Flight" ~ "Other flight",
+                            top == "Perch" & pfeed ~ "Perched feeding",
+                            top == "Perch" & groom ~ "Grooming",
+                            top == "Perch" ~ "Still perch")
+  list(top = top, state = state)
+}

@@ -1,0 +1,374 @@
+---
+title: "FleaTag accelerometry in hummingbirds"
+subtitle: "Captive validation against video and activity budgets of wild birds, Colombia 2025"
+author: "Edward Hurme"
+date: today
+format:
+  typst:
+    papersize: a4
+    margin:
+      x: 2cm
+      y: 2cm
+    fontsize: 10pt
+    toc: false
+    section-numbering: "1."
+execute:
+  echo: false
+  warning: false
+  message: false
+knitr:
+  opts_chunk:
+    dev: png
+    dpi: 200
+---
+
+```{r setup}
+# Rendered by reports/render_hummingbird_report.R (copies figures next to this
+# file, renders with the Quarto/Typst bundled in Positron, moves the PDF to
+# Dropbox). Numbers are read from the outputs of
+# R/hummingbird_activity_budget.R, R/hummingbird_captive_validation.R and
+# R/hummingbird_behaviour_separability.R.
+library(tidyverse)
+library(knitr)
+hb <- "C:/Users/ehurme/Dropbox/MPI/Wingbeat/Colombia25/Hummingbird"
+wild_dir <- file.path(hb, "WIN 2025/Results/activity_budget")
+cap_dir <- file.path(hb, "Results/captive_validation")
+rd <- function(dir, f) read_csv(file.path(dir, f), show_col_types = FALSE)
+
+budget <- rd(wild_dir, "deployment_budget.csv")
+group_sum <- rd(wild_dir, "group_summary.csv")
+burst_bouts <- rd(wild_dir, "burst_bout_duration.csv")
+anchors <- rd(wild_dir, "light_anchors.csv")
+cont_bouts <- rd(wild_dir, "continuous_flight_bouts.csv")
+bursts <- rd(wild_dir, "burst_classification.csv")
+trial_val <- rd(cap_dir, "trial_validation.csv")
+burst_val <- rd(cap_dir, "burst_validation.csv")
+dyn_beh <- rd(cap_dir, "dyn_by_behavior.csv")
+wbf_sp <- rd(cap_dir, "wingbeat_frequency_species.csv")
+c45 <- rd(cap_dir, "cont045_real_validation.csv")
+rf <- rd(cap_dir, "hover_rf_results.csv")
+rf_within <- rd(cap_dir, "hover_rf_within_bird.csv")
+int_dir <- file.path(hb, "Results/flight_intensity")
+int_cmp <- rd(int_dir, "wild_vs_captive.csv")
+int_sp <- rd(int_dir, "wild_vs_captive_species.csv")
+int_high <- rd(int_dir, "high_intensity_bursts.csv")
+int_win <- rd(int_dir, "flight_windows.csv")
+
+f1 <- function(x) formatC(x, format = "f", digits = 1)
+f0 <- function(x) formatC(x, format = "f", digits = 0)
+rng <- function(x, f = f1) paste0(f(min(x, na.rm = TRUE)), "–", f(max(x, na.rm = TRUE)))
+
+# captive headline numbers
+# trials whose offset and sampling rate were both fitted from the video (rate not borrowed),
+# excluding CB25_2 (no phone-clock reference, partly annotated)
+both <- filter(trial_val, !is.na(specificity), k_source == "fitted", obs != "CB25_2")
+ok_trials <- filter(trial_val, align_ok)
+fitted_rate <- filter(trial_val, k_source == "fitted")
+r210 <- filter(fitted_rate, sr_nominal == 210); r105 <- filter(fitted_rate, sr_nominal == 105)
+bv <- burst_val %>% filter(obs %in% ok_trials$obs) %>% group_by(burst_s) %>%
+  summarise(bias = mean(burst_flight_pct - boris_flight_pct), mae = mean(abs(burst_flight_pct - boris_flight_pct)))
+cont_bias <- with(ok_trials, mean(cont_cont_flight_pct - boris_flight_pct))
+cont_mae <- with(ok_trials, mean(abs(cont_cont_flight_pct - boris_flight_pct)))
+dyn <- function(s, col) dyn_beh[[col]][dyn_beh$state == s]
+
+# wild headline numbers
+inc <- filter(budget, include, day_h >= 4)
+burst_inc <- filter(inc, mode != "0.45 Hz continuous")
+anchor_ok <- filter(anchors, abs(anchor_offset_min) <= 15)
+clock_fit <- budget %>% filter(clock_rate_source == "light anchors")
+bb_main <- filter(burst_bouts, min_run_s == 0.1)
+cb_day <- filter(cont_bouts, day)
+
+# hovering random forest (0.3 s windows unless stated)
+rf_get <- function(cn, ws, feats, col, model = "random forest")
+  rf[[col]][rf$contrast == cn & rf$window_s == ws & rf$model == model & rf$features == feats]
+c_any <- "Any hovering vs other flight"; c_hov <- "Hovering (no feeding) vs other"
+c_hf <- "Hover-feeding vs other flight"; c_hfh <- "Hover-feeding vs hovering"
+rf_hov <- rf_get(c_hov, 0.3, "all features", "auc_within_bird")          # brief hovering
+rf_any_range <- range(rf$auc_within_bird[rf$contrast == c_any & rf$window_s == 0.3])
+rf_hf <- rf_get(c_hf, 0.3, "all features", "auc_within_bird")            # hover-feeding
+rf_hf_n <- rf_get(c_hf, 0.3, "all features", "n_hover")
+rf_hfh <- rf_get(c_hfh, 0.3, "all features", "auc_within_bird")
+rf_pb <- rd(cap_dir, "hover_rf_per_bird_auc.csv")
+rf_hf_birds <- filter(rf_pb, contrast == c_hf, window_s == 0.3, features == "all features")
+rf_within_any <- filter(rf_within, contrast == c_any)
+rf_within_hf <- filter(rf_within, contrast == c_hf)
+# hover-feeding vs other flight, single features within the S. cyanifrons birds
+hw <- rd(cap_dir, "hover_windows.csv") %>% filter(window_s == 0.3, class %in% c("Hover-feeding", "Other flight")) %>%
+  group_by(obs) %>% filter(any(class == "Hover-feeding")) %>% ungroup()
+hw_med <- hw %>% group_by(class) %>% summarise(across(c(static_g, dyn_sd, peak_g, corr_yz, peak_frac), median))
+hwm <- function(cl, f) hw_med[[f]][hw_med$class == cl]
+# wild vs captive intensity (0.3 s windows = wild 210 Hz bursts)
+w03 <- "0.3 s (210 Hz bursts)"; w15 <- "1.5 s (105 Hz bursts)"
+ic <- function(w, m, col) int_cmp[[col]][int_cmp$window == w & int_cmp$metric == m]
+ih <- function(w, col) int_high[[col]][int_high$window == w]
+int_clip_wild <- with(filter(int_win, setting == "wild"), 100 * mean(clip_frac > 0))
+int_clip_cap <- with(filter(int_win, setting == "captive"), 100 * mean(clip_frac > 0))
+```
+
+# Summary
+
+FleaTag accelerometers (0.34 g, ~4% of body mass) were tested on captive hummingbirds filmed in a flight cage (`r nrow(trial_val)` trials, `r n_distinct(trial_val$species)` species, labelled in BORIS) and deployed on `r nrow(budget)` wild birds of three species near Bogotá that were recaptured with data.
+
+- **Flight vs perching is classified almost perfectly.** Against video, `r f1(100 * min(both$sensitivity))`–`r f1(100 * max(both$sensitivity))`% of flight and `r f1(100 * min(both$specificity))`–`r f1(100 * max(both$specificity))`% of perching samples are classified correctly (`r nrow(both)` trials with fully fitted alignment, see Section 4). Every wild sampling scheme (0.3 s or 1.5 s bursts, 0.45 Hz continuous) recovers the video flight time within `r f1(max(c(bv$mae, cont_mae)))` percentage points on average, and a real 0.45 Hz recording agrees too (`r f1(c45$cont_flight_pct)`% vs `r f1(c45$boris_flight_pct)`% flight).
+- **Wild hummingbirds fly `r rng(burst_inc$pct_flight_day)`% of the day** (median `r f1(median(burst_inc$pct_flight_day))`%; burst tags with ≥ 4 h of daytime data), i.e. roughly `r f0(median(burst_inc$flight_min_per_day))` min of flight per day. Flight peaks at dawn and is absent at night.
+- **Flights are short.** Continuous flapping episodes last `r f1(min(bb_main$mean_bout_s))`–`r f1(max(bb_main$mean_bout_s))` s on average (burst tags); on the coarser 0.45 Hz scale bouts have a median of `r f1(median(cb_day$duration_s))` s and a long tail (90th percentile `r f0(quantile(cb_day$duration_s, 0.9))` s).
+- **Tag clocks need correcting.** The light sensor shows the burst timer runs `r f1(min(clock_fit$clock_rate_pct))`–`r f1(max(clock_fit$clock_rate_pct))`% slow; video shows the accelerometer sampling rate is tag-specific, from `r f0(abs(min(100 * (r210$sr_true / 210 - 1))))`% below to `r f0(max(100 * (r210$sr_true / 210 - 1)))`% above nominal.
+- **Wild flight is more intense than captive escape flight.** Per bird, dynamic acceleration is `r f0(100 * (ic(w03, "dyn_sd", "ratio_wild_captive") - 1))`% higher in the wild (`r f1(ic(w03, "dyn_sd", "wild_median"))` vs `r f1(ic(w03, "dyn_sd", "captive_median"))` g), and `r f0(ih(w03, "pct_above_captive_q_static"))`% of wild 0.3 s flight bursts show sustained acceleration (mean |a| far from 1 g) beyond anything seen in the cage. These are candidate chases or fast manoeuvres.
+- **Distinguishable in the wild data:** flight vs perched; take-offs and landings; still vs active perching (grooming-like movement); night roosting (with the light sensor); wingbeat frequency; candidate high-acceleration flight. **Not (yet) distinguishable:** hovering. Even with posture and axis-coordination metrics a random forest is at chance on new birds. Hover-feeding (feeding split from perched feeding by its BORIS modifier) has a clear signature within each of the two birds that did it (time-blocked AUC `r sprintf("%.2f", min(rf_within_hf$auc_blocked_rf))`–`r sprintf("%.2f", max(rf_within_hf$auc_blocked_rf))`), but a model trained on one bird does not transfer to the other (AUC `r sprintf("%.2f", rf_hf)`). Perched feeding and grooming have too few labelled birds (Section 7).
+
+# Data
+
+```{r data-table}
+modes <- tribble(
+  ~Setting, ~`Recording mode`, ~`Sampling`, ~`Birds / trials`,
+  "Captive (Feb 2025)", "Continuous 210 Hz or 105 Hz", "until memory full (~3.4 or 6.8 min)",
+  str_glue("{nrow(trial_val)} trials with video + BORIS"),
+  "Wild (Mar 2025)", "Bursts, 210 Hz", "0.3 s every 2 min",
+  as.character(sum(budget$mode == "210 Hz burst")),
+  "Wild", "Bursts, 105 Hz", "1.5 s every 5 min", as.character(sum(budget$mode == "105 Hz burst")),
+  "Wild", "Continuous, 0.45 Hz", "one sample every 2.22 s", as.character(sum(budget$mode == "0.45 Hz continuous")))
+kable(modes, format = "pipe")
+```
+
+Captive trials: *`r paste(sort(unique(trial_val$species)), collapse = "*, *")`*. The BORIS behaviours are hierarchical: Flight and Perch alternate; Hovering is nested in Flight; Feed carries a modifier, "Hovering" (feeding in flight, nested in Hovering) or "On feeder" (feeding while perched); Grooming is nested in Perch. Feeding is therefore split by its modifier, never pooled, and each moment gets one exclusive state, most specific first: hover-feeding, hovering or other flight; perched feeding, grooming or still perch. One further trial (AN27_1) used the 0.45 Hz firmware and is validated separately. The 20 high-rate trials are 18 individuals (two *S. cyanifrons* were each tested with two tags), and the captive birds are 13 males, 2 females and 3 of unknown sex (plus the male in AN27_1); the wild birds are 13 males and 2 females. With two females in each setting, in different species, sex differences cannot be tested. Wild deployments: *Anthracothorax nigricollis*, *Colibri coruscans* and *Phaethornis guy*, tagged in the afternoon and mostly recaptured the next day; data are trimmed to release–recapture.
+
+# Methods in brief
+
+**Flight classification.** For high-rate data a 0.1 s (~3 wingbeat) running dynamic SD with hysteresis (flight above 1 g, perched below 0.5 g; flight runs must reach 2 g; runs < 0.1 s merged) gives sample-level flight. Whole wild bursts are flight when their dynamic SD exceeds 1 g. At 0.45 Hz each sample is a random phase of the wingbeat, so a sample is flight when |a| deviates > 0.5 g from 1 g (or jumps > 0.5 g from both neighbours next to such a sample). The same functions (`R/flea_functions.R`) are used for captive and wild data.
+
+**Video alignment.** Video time = offset + k × tag time. Offset and k are fitted per trial by cross-correlating ACC flight with BORIS Flight/Perch; k gives the true sampling rate. Trials that are almost all flight borrow k from the same tag's other trials.
+
+**Wild timing.** Tags have no real-time clock. Recording start comes from the deployment sheet; the light sensor (one reading per burst) switches off at dusk and on at dawn. Requiring the same solar altitude at both (Bogotá, `suncalc`) gives each tag's clock-rate error; day is defined as sun above the altitude at which the sensor switches (≈ `r f1(median(anchors$sun_alt))`°).
+
+**Bout durations from bursts.** Mean bout = 2 × flight time / (take-offs + landings) observed inside bursts. This ratio is not biased towards long bouts and needs no assumption about bout length.
+
+# Captive validation
+
+```{r}
+#| label: fig-example
+#| fig-cap: "Example trial. Top: 0.1 s dynamic acceleration. Middle: ACC flight classification above the BORIS labels. Right: raw acceleration at a take-off."
+include_graphics("fig/fig1_example.png")
+```
+
+**Flight vs perching.** Flight states have a median dynamic SD of `r f1(dyn("Other flight", "median_dyn_g"))` g (other flight), `r f1(dyn("Hovering", "median_dyn_g"))` g (hovering) and `r f1(dyn("Hover-feeding", "median_dyn_g"))` g (hover-feeding); perched states `r sprintf("%.2f", dyn("Still perch", "median_dyn_g"))`–`r sprintf("%.2f", dyn("Grooming", "median_dyn_g"))` g. Hover-feeding is counted as flight in `r f0(dyn("Hover-feeding", "pct_classified_flight"))`% of samples and perched feeding in `r f0(dyn("Perched feeding", "pct_classified_flight"))`%, so the two kinds of feeding fall on the correct side of the flight/perch split. Only `r f1(dyn("Still perch", "pct_classified_flight"))`% of still perching and `r f1(dyn("Grooming", "pct_classified_flight"))`% of grooming samples are called flight, mostly at the edges of take-offs and landings (@fig-sep). Two trials score lower for alignment reasons rather than classification: CB25_2 (sensitivity `r f0(100 * trial_val$sensitivity[trial_val$obs == "CB25_2"])`%) has no phone-clock reference and is only partly annotated, and CB22_1 (specificity `r f0(100 * trial_val$specificity[trial_val$obs == "CB22_1"])`%) is `r f0(trial_val$boris_flight_pct[trial_val$obs == "CB22_1"])`% flight, so its sampling rate could not be fitted and its short perch at the end is misaligned. Headline numbers use the `r nrow(both)` trials with fully fitted alignment.
+
+```{r}
+#| label: fig-sep
+#| fig-cap: "Left: dynamic acceleration by BORIS behaviour. Right: per-trial sensitivity and specificity."
+include_graphics("fig/fig2_separation.png")
+```
+
+**Flight time budgets.** Simulating the wild sampling schemes on the continuous recordings reproduces the video flight percentage closely: bias `r sprintf("%+.1f", bv$bias[bv$burst_s == 0.3])` points for 0.3 s bursts, `r sprintf("%+.1f", bv$bias[bv$burst_s == 1.5])` for 1.5 s bursts and `r sprintf("%+.1f", cont_bias)` for 0.45 Hz sampling (@fig-pct). The small positive bias comes from bursts that catch a take-off or landing.
+
+**Real 0.45 Hz recording.** One trial (AN27_1, *A. nigricollis*) used the 0.45 Hz firmware, so the decimation above could be checked against the real thing. With no phone-clock reference the offset was searched over the whole recording: the tag started logging `r f0(c45$a)` s into the video, so the overlap covers the last `r f0(c45$video_s)` s and `r c45$boris_n_bouts` video flights (the tag was taken off after filming; its orientation then flips and stays constant). In the overlap the 0.45 Hz classifier finds `r f1(c45$cont_flight_pct)`% flight against `r f1(c45$boris_flight_pct)`% in the video, with `r f0(100 * c45$sensitivity)`% of flight and `r f0(100 * c45$specificity)`% of perching samples correct and `r c45$cont_n_bouts` vs `r c45$boris_n_bouts` flight bouts. The fitted clock factor (`r sprintf("%.3f", c45$k)`) suggests this firmware's 2.22 s timer runs ~`r f0(100 * (1 / c45$k - 1))`% fast, in contrast to the 1–2% slow burst timer, so the wild 0.45 Hz tags may need their own clock correction.
+
+```{r}
+#| label: fig-pct
+#| fig-cap: "Percent time in flight from video vs each ACC sampling scheme; one point per trial."
+include_graphics("fig/fig3_flight_pct.png")
+```
+
+**Sampling rate.** The fitted true rate is `r f0(min(r210$sr_true))`–`r f0(max(r210$sr_true))` Hz for nominal 210 Hz tags (median `r f0(median(r210$sr_true))`) and `r f1(min(r105$sr_true))`–`r f1(max(r105$sr_true))` Hz for nominal 105 Hz tags, consistent within tags and close to the manual alignment (@fig-rate). Frequencies and within-burst durations computed with the nominal rate are therefore biased by a few percent.
+
+```{r}
+#| label: fig-rate
+#| fig-cap: "True sampling rate per tag (dot) vs nominal (dashed) and manual alignment (x)."
+#| out-width: 75%
+include_graphics("fig/fig4_rate.png")
+```
+
+**Wingbeat frequency.** Every species shows the wingbeat fundamental on the tag z axis and a 2nd harmonic on x (two strokes per wingbeat; @fig-wbf). Taking the peak of the spectrum summed over axes gives `r rng(wbf_sp$wbf_true_hz)` Hz across species (at the true sampling rate). In 15–25% of windows of some species the harmonic still wins; medians are robust, but a harmonic check is needed before using single-burst values.
+
+```{r}
+#| label: fig-wbf
+#| fig-cap: "Mean flight spectra per axis and wingbeat frequency per species."
+include_graphics("fig/fig5_wingbeat.png")
+```
+
+**Bout durations.** At 0.1 s resolution ACC detects more short flight episodes (< 3 s) than the video coder, probably brief touchdowns or clinging that were coded as continuous flight; above ~5 s the distributions agree (@fig-bouts). The within-burst estimator recovered the video mean bout to within ~±30% in captivity. Cage flights (often minutes of continuous flight) are not representative of wild bout lengths.
+
+```{r}
+#| label: fig-bouts
+#| fig-cap: "Flight bout durations, video vs ACC."
+include_graphics("fig/fig6_bouts.png")
+```
+
+# Wild activity budgets
+
+**Timing.** All light anchors with both dusk and dawn give a slow burst clock (`r f1(min(clock_fit$clock_rate_pct))`–`r f1(max(clock_fit$clock_rate_pct))`%). After correction, dusk and dawn anchors fall within ±`r f0(max(abs(anchor_ok$anchor_offset_min)))` min of the common threshold, and recapture handling in tags that kept logging lines up with the deployment sheet. The light of AD006 switches off `r f0(max(anchors$anchor_offset_min))` min late, so its start time or clock is suspect. No flight is detected at night on any tag.
+
+```{r budget-table}
+budget %>%
+  arrange(mode, id) %>%
+  transmute(ID = id, Species = str_replace(species, "^(\\w)\\w+ ", "\\1. "), Mode = str_remove(mode, " continuous| burst"),
+            `Day h` = f1(day_h), `Flight %` = f1(pct_flight_day), `Min/day` = f0(flight_min_per_day),
+            First = coalesce(substr(as.character(first_flight), 1, 5), "–"), Last = coalesce(substr(as.character(last_flight), 1, 5), "–"),
+            Note = str_c(if_else(str_detect(coalesce(qc_note, ""), "no flight"), "excluded: no flight, tag failed? ", ""),
+                         if_else(str_detect(coalesce(qc_note, ""), "anchor"), "timing suspect ", ""),
+                         if_else(str_detect(coalesce(qc_note, ""), "<4 h") & !str_detect(coalesce(qc_note, ""), "no flight"), "< 4 h of day ", ""),
+                         if_else(trimmed_after_recapture, "trimmed at recapture", "")) %>% str_trim()) %>%
+  kable(format = "pipe", align = "lllrrrrrl",
+        caption = "Daytime budget per deployment. Day = sun above the light-sensor threshold; minutes per day scaled to a 12.6 h day; first/last = first morning and last evening flight recorded.")
+```
+
+Burst tags with ≥ 4 h of daytime data fly a median of `r f1(group_sum$pct_flight_median[group_sum$mode == "210 Hz burst"])`% (210 Hz) and `r f1(group_sum$pct_flight_median[group_sum$mode == "105 Hz burst"])`% (105 Hz) of the day. The 0.45 Hz tags covered only afternoons and short periods; over the same afternoon hours the burst-tagged *A. nigricollis* fly about as much. AD027 shows sensor noise only (likely a detached or failed tag) and is excluded.
+
+```{r}
+#| label: fig-timeline
+#| fig-cap: "Flight (blue) vs perched (grey) for every deployment, clock-corrected; shading = sun below the light threshold."
+include_graphics("fig/timeline.png")
+```
+
+**Flight bouts.** Inside bursts, `r sum(bb_main$n_takeoffs)` take-offs and `r sum(bb_main$n_landings)` landings were observed. Mean continuous flapping episode: `r f1(bb_main$mean_bout_s[bb_main$mode == "105 Hz burst"])` s (95% CI `r f1(bb_main$mean_bout_lo[bb_main$mode == "105 Hz burst"])`–`r f1(bb_main$mean_bout_hi[bb_main$mode == "105 Hz burst"])`) for 105 Hz tags and `r f1(bb_main$mean_bout_s[bb_main$mode == "210 Hz burst"])` s (`r f1(bb_main$mean_bout_lo[bb_main$mode == "210 Hz burst"])`–`r f1(bb_main$mean_bout_hi[bb_main$mode == "210 Hz burst"])`) for 210 Hz tags, with perches between flights averaging ~`r f0(mean(bb_main$mean_perch_s))` s. The 0.45 Hz tags, which merge short perches, give bouts with median `r f1(median(cb_day$duration_s))` s, mean `r f1(mean(cb_day$duration_s))` s and maximum `r f0(max(cb_day$duration_s))` s; *P. guy* (AD004) flies the longest bouts. These estimates rest on ~`r f0(sum(bb_main$observed_min))` min of total burst time, so flights per hour are uncertain (`r f0(min(burst_inc$flights_per_h_day))`–`r f0(max(burst_inc$flights_per_h_day))` per hour depending on bird) while flight *time* is robust.
+
+# Flight intensity: wild vs captive
+
+Captive birds try to escape the cage, wild birds forage, chase and are chased, so flight could differ in intensity as well as kind. Wild flight bursts were compared with captive flight windows of the same length and sampling (62 samples for the 210 Hz mode, 155 for the 105 Hz mode, captive 210 Hz data decimated to ~105 Hz for the latter), using only windows that are flight throughout (`R/hummingbird_flight_intensity.R`).
+
+```{r intensity-table}
+metric_lab <- c(dyn_sd = "Dynamic SD (g)", vedba = "VeDBA (g)", peak_g = "Peak |a| (g)",
+                static_dev = "Static |a| deviation from 1 g (g)", wbf_hz = "Wingbeat frequency (Hz)*")
+int_cmp %>% filter(metric %in% names(metric_lab)) %>%
+  transmute(window = if_else(window == w03, "0.3 s", "1.5 s"), Metric = metric_lab[metric],
+            val = sprintf("%.2f / %.2f (p = %.2g)", captive_median, wild_median, p_wilcox)) %>%
+  pivot_wider(names_from = window, values_from = val) %>%
+  rename(`0.3 s windows: captive / wild` = `0.3 s`, `1.5 s windows: captive / wild` = `1.5 s`) %>%
+  kable(format = "pipe", caption = str_glue("Median of per-bird medians, captive ({ic(w03, 'dyn_sd', 'n_captive_birds')} trials) vs wild ({ic(w03, 'dyn_sd', 'n_wild_birds')} birds, 210 Hz; {ic(w15, 'dyn_sd', 'n_wild_birds')} birds, 105 Hz); Wilcoxon test on bird medians. * Wild wingbeat frequency assumes the captive median sampling-rate correction."))
+```
+
+Wild flight is `r rng(100 * (c(ic(w03, "dyn_sd", "ratio_wild_captive"), ic(w15, "dyn_sd", "ratio_wild_captive")) - 1), f0)`% more intense by dynamic acceleration and VeDBA (@fig-int). The same holds within the species tagged in both settings: *A. nigricollis* `r f1(int_sp$captive_median[int_sp$window == w03 & int_sp$species == "Anthracothorax nigricollis" & int_sp$metric == "dyn_sd"])` vs `r f1(int_sp$wild_median[int_sp$window == w03 & int_sp$species == "Anthracothorax nigricollis" & int_sp$metric == "dyn_sd"])` g, *C. coruscans* `r f1(int_sp$captive_median[int_sp$window == w03 & int_sp$species == "Colibri coruscans" & int_sp$metric == "dyn_sd"])` vs `r f1(int_sp$wild_median[int_sp$window == w03 & int_sp$species == "Colibri coruscans" & int_sp$metric == "dyn_sd"])` g (one captive bird). Wild wingbeat frequency also appears higher, but it relies on an assumed sampling-rate correction for the wild tags.
+
+The clearest difference is **sustained acceleration**: over a burst of ~9 wingbeats, the mean acceleration vector of a bird in steady flight is ~1 g; it departs from 1 g when the bird speeds up, brakes or turns. `r f0(ih(w03, "pct_above_captive_q_static"))`% of wild 0.3 s flight bursts (in `r ih(w03, "n_birds_high_static")` of `r ih(w03, "n_birds")` birds, spread through the day; @fig-int-hour) exceed the 99th percentile of captive flight, against 1% by definition in the cage. These bursts also flap harder and faster, and the effect is the same in bursts without clipping, so it is not a sensor artefact. They are the best current candidates for chases and fast manoeuvres, but there are no labels to confirm what they are. The 1.5 s bursts average over longer periods and show the effect less (`r f0(ih(w15, "pct_above_captive_q_static"))`%).
+
+**Sensor range.** `r f0(int_clip_wild)`% of wild and `r f0(int_clip_cap)`% of captive flight windows contain at least one sample at the ±8 g limit, so peak acceleration and, to a lesser extent, dynamic SD are underestimated in both. A ±16 g range would be needed to measure the most intense flight.
+
+```{r}
+#| label: fig-int
+#| fig-cap: "Wild vs captive flight: distributions of dynamic SD, peak |a|, sustained acceleration and wingbeat frequency in matched flight windows."
+include_graphics("fig/intensity_distributions.png")
+```
+
+```{r}
+#| label: fig-int-hour
+#| fig-cap: "Sustained acceleration in wild flight bursts through the day; orange = beyond the captive range."
+include_graphics("fig/intensity_by_hour.png")
+```
+
+# Which behaviours can we distinguish in the wild data?
+
+```{r behaviour-table}
+tribble(
+  ~Behaviour, ~`In wild data?`, ~Evidence,
+  "Flight vs perched", "Yes", str_glue("Captive: {rng(100 * both$sensitivity, f0)}% of flight and {rng(100 * both$specificity, f0)}% of perching correct; flight % within ~1–2 points for all wild schemes"),
+  "Take-off / landing", "Yes (burst tags)", "Transitions visible inside 0.3–1.5 s bursts; gives bout durations",
+  "Still vs active perching", "Yes, coarse", str_glue("Grooming {f1(dyn('Grooming', 'median_dyn_g'))} g vs still perch {f1(dyn('Still perch', 'median_dyn_g'))} g; wild bursts 0.15–1 g follow a clear daily pattern"),
+  "Night roost vs day perch", "Yes, with light sensor", "Light off ~sun at -5°; no flight and almost no movement at night",
+  "Pre-dawn activity (shivering?)", "Candidate", "Low-amplitude movement in darkness 1–1.5 h before light-on in 2 birds; needs confirmation",
+  "Wingbeat frequency", "Yes, per bird", "Fundamental 23–34 Hz in flight; harmonic check and true sampling rate needed",
+  "High-acceleration flight (chases?)", "Candidate", str_glue("{f0(ih(w03, 'pct_above_captive_q_static'))}% of wild 0.3 s flight bursts show sustained acceleration beyond the captive range; no labels"),
+  "Hover-feeding (sustained hovering)", "Not yet", str_glue("Clear within each of 2 S. cyanifrons (time-blocked AUC {sprintf('%.2f', min(rf_within_hf$auc_blocked_rf))}-{sprintf('%.2f', max(rf_within_hf$auc_blocked_rf))}), but does not transfer between them (AUC {sprintf('%.2f', rf_hf)})"),
+  "Brief hovering vs other flight", "No", str_glue("Random forest, 42 features, AUC {sprintf('%.2f', rf_hov)} (0.5 = chance); also fails within birds"),
+  "Perched feeding", "Not testable yet", str_glue("Always on the perch side ({f0(dyn('Perched feeding', 'pct_classified_flight'))}% called flight), but labelled mainly in the 0.45 Hz trial and in 3 events elsewhere"),
+  "Grooming (specific)", "Not testable yet", "Labelled in one bird only") %>%
+  kable(format = "pipe", caption = "Behaviours resolvable from wild FleaTag data.")
+```
+
+**Flight, perching, take-off and landing.** These are well validated (Section 4) and are the basis of the activity budgets.
+
+**Still vs active perching.** In captivity grooming raises dynamic acceleration above still perching (median `r sprintf("%.2f", dyn("Grooming", "median_dyn_g"))` vs `r sprintf("%.2f", dyn("Still perch", "median_dyn_g"))` g, 90th percentile `r sprintf("%.2f", dyn("Grooming", "q90_dyn"))` vs `r sprintf("%.2f", dyn("Still perch", "q90_dyn"))` g) without reaching flight levels. In the wild, each burst can be put in one of three exclusive states (@fig-active). At night birds are still in 98% of bursts. After dawn, flight peaks first (32% of bursts at 06–07 h) and active perching follows (28% at 07–08 h), consistent with preening after the first foraging flights; through the rest of the day birds are still in about 80% of bursts. This class will also contain head movements, posture changes and partial take-offs, so it is best read as "perched and moving".
+
+```{r}
+#| label: fig-active
+#| fig-cap: "Wild burst tags: what birds do in each hour. Every burst is one of three exclusive states, so the bars sum to 100%: still perching (< 0.15 g), active perching (perched and moving, 0.15–1 g) and flight (> 1 g). Clock-corrected, all burst-tagged birds pooled (AD027 excluded); numbers above the bars = bursts per hour; dashed lines = light-sensor dawn and dusk."
+#| fig-height: 3.4
+#| fig-width: 7.5
+b <- bursts %>% filter(free, id != "AD027") %>%
+  mutate(hour = floor(clock),
+         state = factor(case_when(dyn_sd > 1 ~ "Flight", dyn_sd > 0.15 ~ "Active perching", TRUE ~ "Still perching"),
+                        levels = c("Flight", "Active perching", "Still perching")))
+by_h <- b %>% count(hour, state, .drop = FALSE) %>% group_by(hour) %>% mutate(pct = 100 * n / sum(n), n_hour = sum(n)) %>% ungroup()
+light_on <- 5 + 48 / 60; light_off <- 18 + 24 / 60   # sun at the light-sensor threshold, mid-March
+ggplot(by_h, aes(hour + 0.5, pct, fill = state)) +
+  geom_col(width = 0.85, colour = "white", linewidth = 0.3) +
+  geom_vline(xintercept = c(light_on, light_off), linetype = 2, colour = "grey30", linewidth = 0.4) +
+  geom_text(data = distinct(by_h, hour, n_hour), aes(x = hour + 0.5, y = 103, label = n_hour), inherit.aes = FALSE,
+            size = 2.3, colour = "grey45") +
+  scale_fill_manual(values = c(Flight = "#2a78d6", `Active perching` = "#eb6834", `Still perching` = "grey80"), name = NULL) +
+  scale_x_continuous(breaks = seq(0, 24, 3), limits = c(0, 24), expand = c(0.01, 0)) +
+  scale_y_continuous(breaks = seq(0, 100, 25), expand = c(0, 0), limits = c(0, 107)) +
+  labs(x = "Hour of day (UTC-5)", y = "% of bursts") +
+  theme_minimal(base_size = 9) + theme(legend.position = "top", panel.grid.minor = element_blank(), panel.grid.major.x = element_blank())
+```
+
+**Night roosting and a candidate pre-dawn signal.** The light sensor marks night, and at night almost all bursts are still (< 2% active). Between ~04:00 and the first light, active perching rises to 5–8%: AD024 shows repeated low-amplitude bursts (~0.2 g) with a 38–48 Hz spectral peak for 1.5 h in darkness, and AD021 similar low-amplitude movement. This pattern would fit shivering to rewarm from nocturnal torpor, but it is a hypothesis from two birds; it would need body or skin temperature data to confirm.
+
+**High-acceleration flight.** See Section 6: bursts with sustained acceleration beyond the captive range are common in the wild. With labelled wild video (or field observations of chases) these could become a validated class.
+
+**Hovering and hover-feeding.** Hovering should leave a signature: when weight is exactly supported the mean acceleration stays near 1 g and the posture is steady. A random forest (`ranger`, class-balanced, permutation importance) was trained on 0.3 s and 1.5 s windows of captive flight with 42 features in four groups: amplitude (dynamic SD, ODBA, per-axis wingbeat amplitude, jerk, cycle-to-cycle variability), posture (static acceleration per axis and its magnitude, pitch, roll, deviation from the bird's own flight posture, drift and variability of the static vector within the window), spectral (wingbeat frequency, harmonic ratios, peak sharpness, spectral entropy) and coordination between axes (correlation, coherence and phase at the wingbeat frequency, linearity of the 3-D oscillation, angle between the stroke axis and gravity). Following the BORIS hierarchy, flight windows are hover-feeding (Feed with modifier Hovering), hovering without feeding, or other flight, and the contrasts are tested separately (@fig-rf-contrasts). Hover-feeding occurs only in four *S. cyanifrons* trials, which are two individuals each tested with two tags (bands G00193 and G00184), so its contrasts use those birds only, which avoids comparing species instead of behaviours. Throughout, cross-validation holds out one individual (band number), not one trial, so a bird's second trial never trains its own prediction.
+
+- **Hover-feeding has a signature within birds, but it does not yet generalise.** Training and testing on separate time blocks of the same bird gives AUC `r sprintf("%.2f", min(rf_within_hf$auc_blocked_rf))`–`r sprintf("%.2f", max(rf_within_hf$auc_blocked_rf))` (`r rf_hf_n` hover-feeding windows), but a model trained on one bird and tested on the other scores only `r sprintf("%.2f", rf_hf)`. (An earlier version of this analysis held out trials rather than individuals and reported 0.88, which was inflated because each bird's second trial was in the training data.) The within-bird differences follow the physics and point the same way in both birds: during hover-feeding the mean acceleration is `r sprintf("%.2f", hwm("Hover-feeding", "static_g"))` g (weight exactly supported) against `r sprintf("%.2f", hwm("Other flight", "static_g"))` g in other flight, wingbeat acceleration is lower (dynamic SD `r f1(hwm("Hover-feeding", "dyn_sd"))` vs `r f1(hwm("Other flight", "dyn_sd"))` g) and the wingbeat spectrum is sharper (@fig-hf). With more individuals a per-bird or posture-normalised model may transfer; with two it cannot be tested.
+- **Brief hovering is not.** Hovering without feeding against other flight scores `r sprintf("%.2f", rf_hov)`, and hover-feeding against hovering `r sprintf("%.2f", rf_hfh)`, both at chance. Pooling all hovering gives `r sprintf("%.2f", rf_any_range[1])`–`r sprintf("%.2f", rf_any_range[2])` across feature sets (@fig-rf-auc), with tiny and inconsistent importance values (@fig-rf-imp), ROC curves near the diagonal (@fig-rf-roc) and small partial dependence (@fig-rf-pdp). Within single birds it also fails, except in the two *S. cyanifrons* individuals whose hovering is mostly hover-feeding.
+
+The plain Hovering labels are short (median 0.35 s, close to the video-alignment precision and to a single 0.3 s burst), and in a small cage "other flight" is itself slow, hover-like flight, so those labels give the model little contrast to learn. Sustained hover-feeding bouts (median 1.1 s) do, but only two individuals hover-fed, so whether burst tags can pick out sustained hovering such as flower visits in new birds remains open. More birds hover-feeding on video, ideally of several species, are the most direct next step. The 0.45 Hz firmware cannot support any of these features.
+
+**Perched feeding and grooming** are always on the perch side of the flight classifier, but were labelled in too few birds with high-rate tags (perched feeding mostly in the 0.45 Hz trial, grooming in one bird) to test as classes.
+
+```{r}
+#| label: fig-rf-contrasts
+#| fig-cap: "Flight sub-behaviours from the BORIS hierarchy (feeding split by modifier): leave-one-bird-out AUC with all features (grey = each held-out bird, blue = mean; dashed = chance)."
+include_graphics("fig/rf_contrasts.png")
+```
+
+```{r}
+#| label: fig-hf
+#| fig-cap: "Hover-feeding vs other flight in the two S. cyanifrons individuals (four trials, 0.3 s windows): the features that differ most within birds."
+#| fig-height: 2.6
+#| fig-width: 7.5
+hw %>% select(obs, class, `Static |a| (g)` = static_g, `Dynamic SD (g)` = dyn_sd, `Peak |a| (g)` = peak_g,
+              `y-z correlation` = corr_yz, `Spectral peak fraction` = peak_frac) %>%
+  pivot_longer(-c(obs, class), names_to = "feature") %>%
+  mutate(feature = fct_inorder(feature)) %>%
+  ggplot(aes(value, class, fill = class)) +
+  geom_boxplot(outlier.size = 0.3, width = 0.6, linewidth = 0.3) +
+  scale_fill_manual(values = c(`Hover-feeding` = "#008300", `Other flight` = "#2a78d6"), guide = "none") +
+  facet_wrap(~ feature, nrow = 1, scales = "free_x") +
+  labs(x = NULL, y = NULL) +
+  theme_minimal(base_size = 8) + theme(panel.grid.minor = element_blank(), strip.text = element_text(face = "bold"))
+```
+
+```{r}
+#| label: fig-rf-auc
+#| fig-cap: "Any hovering (hovering and hover-feeding) vs other flight: leave-one-bird-out AUC per feature set (grey = each held-out bird, blue = mean; dashed = chance)."
+include_graphics("fig/rf_auc_by_featureset.png")
+```
+
+```{r}
+#| label: fig-rf-imp
+#| fig-cap: "Random forest permutation importance (all features), mean ± SD across leave-one-bird-out folds, coloured by feature group."
+include_graphics("fig/rf_importance.png")
+```
+
+```{r}
+#| label: fig-rf-roc
+#| fig-cap: "ROC and precision-recall curves from cross-validated predictions."
+#| out-width: 80%
+include_graphics("fig/rf_roc_pr.png")
+```
+
+```{r}
+#| label: fig-rf-pdp
+#| fig-cap: "Top: partial dependence of the six most important features. Bottom: the same features by video label, centred and scaled within bird."
+include_graphics("fig/rf_partial_dependence.png")
+```
+
+# Caveats and next steps
+
+- Wild burst data cover only ~`r f0(sum(bb_main$observed_min))` min of actual daytime recording in total; flight time is robust, flight counts and bout durations much less so.
+- Apply each tag's true sampling rate (captive median `r f0(median(r210$sr_true))` / `r f1(median(r105$sr_true))` Hz where the tag was not tested) to wingbeat frequencies and within-burst durations; add a harmonic check to the wingbeat estimator.
+- Label grooming and perched feeding in more birds with burst or continuous high-rate tags (grooming is in one bird; perched feeding mostly in the 0.45 Hz trial) to test them as classes.
+- Hovering and chases need training data with a real contrast: video of wild birds (feeder hovering, territorial chases) or flight-tunnel trials at different speeds. The feature pipeline is ready for it.
+- About half of all flight windows hit the ±8 g sensor limit; a ±16 g setting would measure peak and chase accelerations properly.
+- Exact deployment coordinates would refine the solar timing slightly; the start time of AD006 should be checked.
+
+*Code: `R/hummingbird_activity_budget.R`, `R/hummingbird_captive_validation.R`, `R/hummingbird_captive_figures.R`, `R/hummingbird_behaviour_separability.R`, `R/hummingbird_flight_intensity.R` (shared classifiers and `burst_features()` in `R/flea_functions.R`); report source `reports/hummingbird_acc_report.qmd`.*

@@ -21,6 +21,16 @@ directly.
   into contiguous TRUE runs (e.g. flying bouts) and split a data frame by them.
 - `get_peak_range()` — density-based peak range finder.
 - `to_sec()` — parse `"HH:MM:SS.xxx"` timestamps to seconds.
+- Hummingbird flight classifiers, shared by the wild and captive hummingbird
+  scripts: `read_flea_export()` (reader returning g, light and header keys),
+  `classify_bursts()` (per-burst flight for 105/210 Hz burst modes),
+  `flight_segment()` / `within_burst()` (sample-level flight and take-offs /
+  landings), `classify_continuous()` (0.45 Hz mode), `burst_features()` (42
+  window metrics for behaviour classification and flight intensity), `wingbeat_freq()`
+  (peak of the 3-axis summed spectrum; avoids the 2nd harmonic),
+  `dominant_freq()`, and `hb_boris_state()` (one exclusive state per time
+  point from the hierarchical captive BORIS labels, with feeding split by its
+  modifier).
 
 `R/flea_flight_summary.R` (`flea_flight_summary()`) is a standalone flight-bout
 summarizer (per-file spectrogram + flight periods).
@@ -81,6 +91,38 @@ prefer `flea_functions.R`.
   threshold, estimates flight bout durations (counted at 0.45 Hz; from
   take-offs/landings inside bursts at 105/210 Hz), and writes CSVs and figures
   to `Colombia25/Hummingbird/WIN 2025/Results/activity_budget` on Dropbox.
+- `hummingbird_captive_validation.R` — validates those classifiers on the
+  Feb 2025 captive trials (continuous 210/105 Hz recordings) against BORIS
+  labels (`Hummingbird/boris_annotations.csv`; hierarchical behaviours with
+  Feed split by its modifier into hover-feeding and perched feeding, see
+  `hb_boris_state()`): fits video offset and true sampling rate per trial
+  (automating `align_boris_flea_shiny.R`), then scores sample-level flight,
+  simulated wild bursts and 0.45 Hz sampling, the real 0.45 Hz trial
+  (AN27_1), bout durations and wingbeat frequency; outputs to
+  `Colombia25/Hummingbird/Results/captive_validation` on Dropbox.
+- `hummingbird_captive_figures.R` — summary figures of that validation
+  (example trial with ethogram, ACC by behaviour, flight % per sampling
+  scheme, sampling rate per tag, wingbeat spectra, bout durations, one-page
+  summary); reads `captive_validation.rds`, writes to `captive_validation/figures`.
+- `hummingbird_behaviour_separability.R` — can hovering and hover-feeding be
+  separated from other flight at wild burst resolution? Random forest
+  (`ranger`) on 42 `burst_features()` (amplitude, posture/static stability,
+  spectral, axis coordination) in 0.3 / 1.5 s windows, one contrast per level
+  of the BORIS hierarchy, leave-one-individual-out (by band number, from the
+  test-trials sheet; two birds were tested twice) and within-individual
+  cross-validation, with variable importance, ROC/PR and partial dependence
+  plots. Window features are cached in `hover_windows.rds` (delete it to
+  rebuild).
+- `hummingbird_flight_intensity.R` — compares wild flight bursts with
+  captive flight windows of matched length and sampling (dynamic SD, peak
+  |a|, sustained acceleration, clipping, wingbeat frequency) and flags wild
+  bursts beyond the captive range (candidate chases); outputs to
+  `Colombia25/Hummingbird/Results/flight_intensity` on Dropbox.
+- `reports/hummingbird_acc_report.qmd` — PDF report of the captive and wild
+  hummingbird results (Quarto + Typst). Render with
+  `Rscript reports/render_hummingbird_report.R` after running the scripts
+  above; it uses the Quarto bundled with Positron and writes the PDF to
+  `Colombia25/Hummingbird/Results/report` on Dropbox.
 - `ppg_sensor.R` — PPG (photoplethysmography) sensor data exploration.
 
 ## Field-season analysis scripts (Flanders 2025)

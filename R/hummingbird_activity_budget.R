@@ -59,6 +59,7 @@ library(tidyverse)
 library(data.table)
 library(readxl)
 library(suncalc)
+invisible(Sys.setlocale("LC_TIME", "C"))  # English month names in figure labels
 source("./R/flea_functions.R")  # read_flea_export(), classify_bursts(), within_burst(), classify_continuous()
 
 # ---- paths & parameters -----------------------------------------------------

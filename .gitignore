@@ -5,3 +5,8 @@
 explore/*
 vedba_timeseries_by_rate.png
 *.pdf
+# report build files (rendered PDF goes to Dropbox)
+reports/fig/
+reports/*.pdf
+reports/*.typ
+reports/*_files/

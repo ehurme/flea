@@ -19,12 +19,14 @@ build. Do not add roxygen headers expecting package-style export.
 
 ## Repository layout
 
-- `R/` — all maintained analysis scripts (36 files). Key groupings:
+- `R/` — all maintained analysis scripts (40 files). Key groupings:
   - **Core FleaTag functions** (`R/flea_functions.R`): `read_flea_tag_data()`,
     `flea_preprocess()` (static/dynamic acceleration, VeDBA/ODBA/ENMO,
     pitch/roll/yaw, rolling PCA, flying-bout detection), `flea_plot()`,
     `flea_plot_spectrogram()`, `get_true_groups()`, `get_peak_range()`,
-    `to_sec()`. This is the canonical library — other files either
+    `to_sec()`, plus the hummingbird flight classifiers (`read_flea_export()`,
+    `classify_bursts()`, `flight_segment()`, `within_burst()`,
+    `classify_continuous()`, `wingbeat_freq()`). This is the canonical library — other files either
     `source("./R/flea_functions.R")` or copy/trim the functions they need.
   - **Other FleaTag helpers**: `flea_flight_summary.R`
     (`flea_flight_summary()`, per-file spectrogram + flight periods; sources
@@ -42,7 +44,11 @@ build. Do not add roxygen headers expecting package-style export.
   - **Audio**: `Process_audiomoth.R`, `Process_audiomoth_segment.R`
     (Phyllostomid echolocation call detection from AudioMoth WAVs).
   - **Hummingbird/PPG**: `hummingbird_wild_deployments.R`,
-    `hummingbird_activity_budget.R`, `ppg_sensor.R`.
+    `hummingbird_activity_budget.R`, `hummingbird_captive_validation.R`,
+    `hummingbird_captive_figures.R`, `hummingbird_behaviour_separability.R`,
+    `hummingbird_flight_intensity.R`
+    (report: `reports/hummingbird_acc_report.qmd`),
+    `ppg_sensor.R`.
   - **Field-season one-offs** (hard-coded local/Dropbox paths, kept for the
     record, not reusable): `flanders25.R`, `colombia25.R`, `Flea_Graphs_automated.R`,
     `Flea_filter_test.R`, `Flea_weight_comarison.R`, `Frame_segemt_Flea.R`,

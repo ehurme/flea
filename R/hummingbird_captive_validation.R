@@ -2,11 +2,17 @@
 # finca): validate the FleaTag flight classifiers used for the wild
 # deployments (R/hummingbird_activity_budget.R) against BORIS video labels.
 #
-# Data: 21 continuous FleaTag recordings (210 Hz or 105 Hz "_CONT" modes,
-# 42935 samples = memory full; trial 23 is 0.45 Hz without video) and a BORIS
-# export (observations.csv, 119.88 fps video) with STATE events Flight / Pearch
-# (alternating) plus Hovering, Feed (inside Flight) and Grooming (inside
-# Pearch). Trials 21-22 (SC27_1, SC27_2) have no BORIS export yet.
+# Data: 20 continuous FleaTag recordings (210 Hz or 105 Hz "_CONT" modes,
+# 42935 samples = memory full), one 0.45 Hz recording (trial 23, AN27_1) and a
+# BORIS export (boris_annotations.csv, 119.88 fps video) with STATE events.
+# The behaviours are hierarchical and are kept apart using the modifier:
+#   Flight / Pearch      alternate (top level)
+#   Hovering             inside Flight
+#   Feed + "Hovering"    feeding while hovering (inside Hovering)
+#   Feed + "On feeder"   feeding while perched (inside Pearch)
+#   Grooming             inside Pearch
+# Each sample gets one exclusive state, most specific first: Hover-feeding,
+# Hovering, Other flight; Perched feeding, Grooming, Still perch.
 #
 # Alignment: video time v = a + k * t_tag, where t_tag = sample index /
 # nominal rate. a and k are fitted per trial by cross-correlating ACC flight
@@ -24,8 +30,9 @@
 #                  BORIS, and within_burst() mean bout duration vs BORIS
 #   0.45 Hz        the continuous data decimated to one sample per 2.22 s
 #                  (several phases): classify_continuous() flight fraction and
-#                  bout count vs BORIS. The real 0.45 Hz mode may filter
-#                  differently from decimated 210 Hz data.
+#                  bout count vs BORIS; and the real 0.45 Hz recording of
+#                  trial 23 (AN27_1), aligned the same way (no phone-clock
+#                  prior, so the offset search covers the whole recording).
 #   wingbeats      wingbeat frequency per species at the nominal and the
 #                  fitted (true) sampling rate
 #
@@ -40,7 +47,7 @@ source("./R/flea_functions.R")  # read_flea_export(), flight_segment(), classify
 hb_dir <- "C:/Users/ehurme/Dropbox/MPI/Wingbeat/Colombia25/Hummingbird"
 trial_dir <- file.path(hb_dir, "202502_Fleatag_Hummingbirds_Trials")
 meta_xlsx <- file.path(hb_dir, "HUMMINGBIRD VIDEOS.xlsx")
-boris_csv <- file.path(hb_dir, "observations.csv")
+boris_csv <- file.path(hb_dir, "boris_annotations.csv")
 out_dir <- file.path(hb_dir, "Results/captive_validation")
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
@@ -63,6 +70,10 @@ burst_step_s <- 0.5                # spacing of simulated bursts
 cont_period_s <- 1 / 0.45          # 0.45 Hz mode sample interval
 n_cont_phases <- 10
 wbf_window_s <- 2
+
+# observation ids missing from the video sheet (trials 21-23): from the video
+# file names (finca5_20250227_C0001/2/4) and the ACC files of 27 Feb
+obs_fix <- c(`21` = "SC27_1", `22` = "SC27_2", `23` = "AN27_1")
 
 # alignment found by hand in R/align_boris_flea_shiny.R (acc_aligned.pdf):
 # offset, sampling rate and t_rel per observation, last screenshot per trial
@@ -107,33 +118,29 @@ meta <- read_excel(meta_xlsx, sheet = 1, .name_repair = "unique_quiet") %>%
             t_rel = clock_sec(`CAMERA FRAME...16`) + clock_sec(`ACC START TIME`) - clock_sec(`PHONE TIME`),
             a_prior = tag_start_delay_s + t_rel)
 
+# Feed is split by its modifier, so feeding in flight and feeding on a perch
+# are separate behaviours
 boris <- fread(boris_csv) %>%
   as_tibble() %>%
-  transmute(obs = `Observation id`, behavior = recode(Behavior, Pearch = "Perch"),
+  transmute(obs = `Observation id`,
+            behavior = case_when(Behavior == "Feed" & `Modifier #1` == "Hovering" ~ "Feed (hovering)",
+                                 Behavior == "Feed" & `Modifier #1` == "On feeder" ~ "Feed (perched)",
+                                 Behavior == "Pearch" ~ "Perch",
+                                 TRUE ~ Behavior),
             start = `Start (s)`, stop = `Stop (s)`)
 
-# BORIS state at video times v: top = Flight / Perch / NA (not annotated),
-# sub = Hovering / Feed / Grooming / NA
-boris_state <- function(v, bb) {
-  top <- rep(NA_character_, length(v)); sub <- rep(NA_character_, length(v))
-  for (b in c("Flight", "Perch")) {
-    e <- filter(bb, behavior == b)
-    for (i in seq_len(nrow(e))) top[v >= e$start[i] & v < e$stop[i]] <- b
-  }
-  for (b in c("Grooming", "Feed", "Hovering")) {
-    e <- filter(bb, behavior == b)
-    for (i in seq_len(nrow(e))) sub[v >= e$start[i] & v < e$stop[i]] <- b
-  }
-  list(top = top, sub = sub)
-}
+# BORIS labels at video times: top (Flight / Perch) and one exclusive state,
+# most specific first (hb_boris_state() in R/flea_functions.R)
+state_levels <- hb_state_levels
+boris_state <- hb_boris_state
 
 # ---- alignment --------------------------------------------------------------
 # best (a, k) maximising sum(acc * boris) on a grid_dt grid; acc and boris
 # coded +1 flight / -1 perched, boris 0 where not annotated
-fit_alignment <- function(fly, sr, bb, ks = k_grid) {
+fit_alignment <- function(fly, sr, bb, ks = k_grid, lags_allowed = lag_range) {
   t_tag <- (seq_along(fly) - 1) / sr
   fa <- ifelse(is.na(fly), 0, ifelse(fly, 1, -1))
-  vgrid <- seq(0, max(bb$stop) + lag_range[2], by = grid_dt)
+  vgrid <- seq(0, max(bb$stop) + lags_allowed[2], by = grid_dt)
   st <- boris_state(vgrid, bb)$top
   fb <- case_when(st == "Flight" ~ 1, st == "Perch" ~ -1, TRUE ~ 0)
   best <- list(score = -Inf)
@@ -144,7 +151,7 @@ fit_alignment <- function(fly, sr, bb, ks = k_grid) {
     cc <- Re(fft(fft(c(fb, rep(0, nn - length(fb)))) * Conj(fft(c(fa_g, rep(0, nn - length(fa_g))))),
                  inverse = TRUE)) / nn
     lags <- c(0:(nn / 2), -((nn / 2 - 1):1)) * grid_dt
-    ok <- which(lags > lag_range[1] & lags < lag_range[2])
+    ok <- which(lags > lags_allowed[1] & lags < lags_allowed[2])
     j <- ok[which.max(cc[ok])]
     if (cc[j] > best$score) best <- list(score = cc[j], a = lags[j], k = k)
   }
@@ -154,11 +161,13 @@ fit_alignment <- function(fly, sr, bb, ks = k_grid) {
 files <- list.files(trial_dir, pattern = "Trial0[0-9]{2}[.]txt$", full.names = TRUE, recursive = TRUE)
 trials <- tibble(path = files, trial = as.integer(str_match(basename(files), "Trial0*([0-9]+)[.]txt$")[, 2])) %>%
   left_join(meta, by = "trial") %>%
-  mutate(has_boris = obs %in% boris$obs)
+  mutate(obs = coalesce(obs, unname(obs_fix[as.character(trial)])),
+         has_boris = obs %in% boris$obs,
+         low_rate = str_detect(basename(path), "045Hz"))   # 0.45 Hz mode, validated separately below
 
 acc <- list()   # per trial: data, rate, segmentation
 fits <- list()
-for (i in which(trials$has_boris)) {
+for (i in which(trials$has_boris & !trials$low_rate)) {
   tr <- trials[i, ]
   message("aligning trial ", tr$trial, " (", tr$obs, ")")
   r <- read_flea_export(tr$path)
@@ -200,7 +209,7 @@ samples <- map_dfr(align$obs, function(o) {
   x <- acc[[o]]; al <- filter(align, obs == o)
   v <- al$a + al$k * (seq_along(x$fly) - 1) / x$sr
   st <- boris_state(v, x$bb)
-  tibble(obs = o, v = v, dyn = x$dyn, acc_fly = x$fly, top = st$top, sub = st$sub)
+  tibble(obs = o, v = v, dyn = x$dyn, acc_fly = x$fly, top = st$top, state = st$state)
 }) %>% filter(!is.na(top), !is.na(acc_fly))
 
 sample_val <- samples %>%
@@ -216,7 +225,7 @@ align <- align %>%
   select(-accuracy)
 
 dyn_by_behavior <- samples %>%
-  mutate(state = coalesce(sub, top)) %>%
+  mutate(state = factor(state, state_levels)) %>%
   group_by(state) %>%
   summarise(n_samples = n(), median_dyn_g = median(dyn), q10_dyn = quantile(dyn, 0.1), q90_dyn = quantile(dyn, 0.9),
             pct_classified_flight = 100 * mean(acc_fly))
@@ -293,6 +302,37 @@ cont_val <- sim_cont %>%
   group_by(obs) %>%
   summarise(across(-phase, mean))
 
+# ---- real 0.45 Hz recording -------------------------------------------------
+# No phone-clock prior and the recording is longer than the video, so the
+# offset may be anywhere from minus the recording length to the end of the
+# video (in AN27_1 the tag starts logging ~260 s into the video, and only the
+# last three video flights are recorded; the tag is removed after the video)
+low <- filter(trials, low_rate, has_boris)
+cont_real <- map_dfr(seq_len(nrow(low)), function(i) {
+  tr <- low[i, ]
+  message("aligning 0.45 Hz trial ", tr$trial, " (", tr$obs, ")")
+  r <- read_flea_export(tr$path)
+  cc <- classify_continuous(r$data, cont_flight_g)
+  bb <- filter(boris, obs == tr$obs)
+  f <- fit_alignment(cc$fly, r$hz, bb, lags_allowed = c(-nrow(cc) / r$hz, max(bb$stop)))
+  v <- f$a + f$k * (seq_len(nrow(cc)) - 1) / r$hz
+  st <- boris_state(v, bb)
+  tibble(trial = tr$trial, obs = tr$obs, species = tr$species, a = f$a, k = f$k,
+         v = v, fly = cc$fly, top = st$top, state = st$state)
+}) %>% filter(!is.na(top))
+
+cont_real_val <- cont_real %>%
+  group_by(trial, obs, species, a, k) %>%
+  summarise(n_samples = n(), video_s = n() * 2.22,
+            boris_flight_pct = 100 * mean(top == "Flight"), cont_flight_pct = 100 * mean(fly),
+            sensitivity = mean(fly[top == "Flight"]), specificity = mean(!fly[top == "Perch"]),
+            perched_feeding_called_flight = mean(fly[state == "Perched feeding"]),
+            n_perched_feeding_samples = sum(state == "Perched feeding"),
+            boris_n_bouts = sum(diff(top == "Flight") == 1) + (first(top) == "Flight"),
+            cont_n_bouts = sum(diff(fly) == 1) + first(fly), .groups = "drop")
+write_csv(cont_real_val, file.path(out_dir, "cont045_real_validation.csv"))
+print(mutate(cont_real_val, across(where(is.double), ~ round(.x, 3))), width = Inf)
+
 # ---- wingbeat frequency -----------------------------------------------------
 wbf <- map_dfr(align$obs, function(o) {
   x <- acc[[o]]; al <- filter(align, obs == o)
@@ -330,6 +370,14 @@ write_csv(burst_val, file.path(out_dir, "burst_validation.csv"))
 write_csv(burst_bout_val, file.path(out_dir, "burst_bout_validation.csv"))
 write_csv(dyn_by_behavior, file.path(out_dir, "dyn_by_behavior.csv"))
 write_csv(wbf_species, file.path(out_dir, "wingbeat_frequency_species.csv"))
+# everything R/hummingbird_captive_figures.R needs, so figures can be redrawn
+# without re-running the alignment and simulations (~10 min)
+saveRDS(list(align = align, validation = validation, samples = samples, boris = boris,
+             sim_bursts = sim_bursts, burst_val = burst_val, sim_cont = sim_cont, cont_val = cont_val,
+             cont_real = cont_real, cont_real_val = cont_real_val, state_levels = state_levels,
+             bout_val = bout_val, wbf = wbf, trials = trials, seg_args = seg_args,
+             burst_flight_g = burst_flight_g, cont_flight_g = cont_flight_g),
+        file.path(out_dir, "captive_validation.rds"))
 
 r2 <- function(x) round(x, 2)
 validation %>%
@@ -377,7 +425,7 @@ p_rate <- align %>% filter(k_identifiable) %>%
   theme_bw()
 
 p_dyn <- samples %>%
-  mutate(state = coalesce(sub, top)) %>%
+  mutate(state = factor(state, state_levels)) %>%
   ggplot(aes(pmax(dyn, 0.01), fill = state)) +
   geom_histogram(bins = 80) +
   geom_vline(xintercept = seg_args$on_g) + geom_vline(xintercept = seg_args$off_g, linetype = 2) +
