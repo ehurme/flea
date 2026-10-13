@@ -1,0 +1,169 @@
+---
+title: "FleaTag accelerometry in death's-head hawkmoths"
+subtitle: "Flight and pre-flight warm-up of *Acherontia atropos* in the barn, 17–20 September 2024"
+author: "Edward Hurme"
+date: today
+format:
+  typst:
+    papersize: a4
+    margin:
+      x: 2cm
+      y: 2cm
+    fontsize: 10pt
+    toc: false
+    section-numbering: "1."
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+# Rendered by reports/render_hawkmoth_report.R (copies figures next to this
+# file, renders with the Quarto/Typst bundled in Positron, moves the PDF to
+# Dropbox). Numbers are read from the outputs of R/hawkmoth_flight_dynamics.R.
+library(tidyverse)
+library(knitr)
+res_dir <- "C:/Users/ehurme/Dropbox/MPI/Wingbeat/2024-Fall-Moth-Barn/Results/flight_dynamics"
+rd <- function(f) read_csv(file.path(res_dir, f), show_col_types = FALSE)
+
+recs <- read_csv(file.path(res_dir, "recordings.csv"), col_types = cols(tag = "c", note = "c")) %>%
+  mutate(note = coalesce(note, ""))
+indiv <- rd("recording_summary.csv")
+bouts <- rd("bouts.csv")
+cycles <- rd("wingbeat_cycles.csv")
+warmup <- rd("warmup_episodes.csv")
+warm_to <- rd("warmup_to_takeoff.csv")
+
+f1 <- function(x) formatC(x, format = "f", digits = 1)
+f0 <- function(x) formatC(x, format = "f", digits = 0)
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+rng <- function(x, f = f1) paste0(f(min(x, na.rm = TRUE)), "–", f(max(x, na.rm = TRUE)))
+
+fl <- filter(bouts, wingbeat)
+flew <- filter(indiv, n_bouts > 0)
+noflight <- filter(indiv, n_bouts == 0)
+long_bouts <- filter(fl, duration_s >= 10)
+cyc_cv <- cycles %>% group_by(rec) %>% summarise(cv = sd(freq_hz) / mean(freq_hz))
+# within-bout steadiness: SD of cycle frequency in 1-s blocks of bouts >= 10 s
+steady <- cycles %>% semi_join(long_bouts, by = c("rec", "bout")) %>%
+  mutate(blk = floor(t_in_bout)) %>% group_by(rec, bout, blk) %>%
+  summarise(hz = median(freq_hz), .groups = "drop") %>% group_by(rec, bout) %>%
+  summarise(sd_hz = sd(hz), .groups = "drop")
+# cycle frequency vs cycle VeDBA within recordings
+fa <- cycles %>% group_by(rec) %>% summarise(r = cor(freq_hz, vedba, method = "spearman"))
+
+ep_to <- filter(warmup, takeoff)
+ep <- function(k) filter(warmup, rec == k)
+m9 <- ep("0919-Moth9-1444"); m4 <- ep("0920-Moth4-1549")
+drop <- warm_to$hz_end - warm_to$bout_wbf
+moth7 <- filter(recs, rec == "0919-Moth7-1242")
+```
+
+# Summary
+
+FleaTags (continuous 210 Hz, ±8 g, ~204 s until the memory is full) were glued to death's-head hawkmoths flying in the barn. `r nrow(recs)` distinct recordings remain after removing duplicate exports; `r nrow(flew)` contain flight and `r nrow(noflight)` (both noted as "charging up") do not. There is no video or 3D track in the data folder, so behaviour comes from the accelerometer alone.
+
+- **Flapping flight is unmistakable:** `r sum(fl$wingbeat)` flight bouts with `r f0(sum(fl$duration_s))` s of flight in total, at `r rng(fl$dyn_sd)` g dynamic SD (rest is < 0.1 g). Bouts last `r rng(fl$duration_s)` s (median `r f1(median(fl$duration_s))` s); the longest flights are `r f0(max(fl$duration_s))` s.
+- **Wingbeat frequency is `r rng(fl$wbf_hz)` Hz**, with a recording mean of `r rng(flew$wbf_hz)` Hz. It is very stable: the cycle-to-cycle CV is `r rng(100 * cyc_cv$cv, f0)`% and within long bouts the frequency in 1-s blocks varies by an SD of only `r f2(median(steady$sd_hz, na.rm = TRUE))` Hz (median).
+- **Pre-flight warm-up is clearly visible.** Before taking off, moths shiver their wings at low amplitude (`r rng(warmup$dyn_start, f2)` g) and a frequency of `r rng(warmup$warm_hz, f0)` Hz for up to `r f0(max(warmup$duration_s))` s. In the longest warm-ups the frequency rises steadily (Moth9 on 19 Sep: `r f0(min(m9$hz_start))` → `r f0(max(m9$hz_end))` Hz; Moth4 on 20 Sep, which never took off: `r f0(min(m4$hz_start))` → `r f0(max(m4$hz_end))` Hz), as expected while the thorax heats up.
+- **Take-off follows warm-up.** `r nrow(ep_to)` of `r nrow(warmup)` warm-up episodes end in a flight bout within 3 s. In flight the wingbeat frequency is usually lower than the warm-up frequency just before take-off (median drop `r f1(median(drop))` Hz).
+
+# Data
+
+```{r data-table}
+recs %>%
+  left_join(indiv %>% select(rec, flight_s, n_bouts, warmup_s), by = "rec") %>%
+  transmute(Recording = rec, Tag = coalesce(tag, "?"), `Start (s)` = f0(t_first),
+            `Flight (s)` = f0(flight_s), Bouts = n_bouts, `Warm-up (s)` = f0(warmup_s), Note = note) %>%
+  kable(format = "pipe", align = "llrrrrl")
+```
+
+Recordings are named date–moth–download time. Moth numbers seem to restart each day, so recordings, not individuals, are the unit (20 Sep Moth6 has two recordings). Duplicates were removed: `01_niceFlight.csv` and `02_secondFlight.csv` equal the Moth2 and Moth3 files; the Moth6 "beautiful flight" `.csv` equals its `.txt`; and `Moth1_copy` from 18 Sep is the Moth5 file saved twice, so it is not known which moth that recording belongs to. The Moth7 export has no header, starts `r f0(moth7$t_first)` s after tag start (`r moth7$n_missing` lines missing) and has a few corrupt lines, which were dropped. The Moth8 export contains a second, partial download, which was ignored.
+
+# Methods in brief
+
+**Flight.** A running dynamic SD over 0.15 s (~4 wingbeats) with hysteresis (enter flight above 1.8 g, leave below 1 g; a run must reach 2.5 g; runs < 0.3 s merged) gives sample-level flight (`flight_segment()` in `R/flea_functions.R`). Bouts must last ≥ 1 s and have a clear wingbeat peak (≥ 15% of the 1–80 Hz power within ±1 Hz of the peak) at ≤ 35 Hz. Wingbeat frequency is the peak of the spectrum summed over the three axes in 18–40 Hz, moved down to the subharmonic if that is strong.
+
+**Wingbeat cycles.** Each bout is band-passed around its wingbeat frequency and projected on its first principal component; upward zero crossings, interpolated between samples (one wingbeat is only ~7.5 samples), start each cycle. Each cycle gets a frequency and a VeDBA.
+
+**Warm-up.** 1-s windows (0.25 s step) outside flight with a dynamic SD of 0.15–1.8 g and a clear spectral peak at 20–55 Hz (≥ 25% of the 5–100 Hz power within ±2 Hz) are warm-up windows. Runs of these windows, with gaps of up to 2 s bridged, that last ≥ 3 s are warm-up episodes. An episode "ends in take-off" if a flight bout starts within 3 s of its end.
+
+# Flight
+
+```{r}
+#| label: fig-ov9
+#| fig-cap: "Moth9 (19 Sep): ~90 s of warm-up with rising frequency (orange), then four flights (blue). Top: dynamic SD with the hysteresis thresholds. Bottom: spectrogram; orange dots are warm-up frequencies, white crosses bout wingbeat frequencies. The band at ~60 Hz is the 2nd harmonic."
+include_graphics("fig/hawkmoth/overview_0919-Moth9-1444.png")
+```
+
+Flight bouts stand out by their amplitude: `r rng(fl$dyn_sd)` g dynamic SD, against 0.3–1.5 g during warm-up and < 0.1 g at rest (@fig-ov9). Peak |a| is `r rng(fl$takeoff_peak_g)` g at take-off and `r rng(fl$landing_peak_g)` g at landing, and less than `r f1(100 * max(fl$clip_frac))`% of the samples in any bout are clipped at ±8 g.
+
+```{r}
+#| label: fig-bouts
+#| fig-cap: "Flight bouts. Wingbeat frequency per recording (point size = bout duration), frequency against duration, dynamic SD against frequency, and the distribution of bout durations."
+include_graphics("fig/hawkmoth/bouts.png")
+```
+
+Recording means range from `r rng(flew$wbf_hz)` Hz, and bouts within a recording differ by up to ~3 Hz, mostly in short bouts (@fig-bouts). The two 17 Sep recordings and Moth9 flew at 29–30 Hz, Moth7 and the 20 Sep moths at 27–28 Hz. With one recording per moth, individual, tag-mounting and day effects (e.g. temperature) cannot be separated. Frequencies are on the tag clock: a clock error of a few percent, as found in the captive hummingbird trials, would shift all values by the same factor.
+
+```{r}
+#| label: fig-within
+#| fig-cap: "Wingbeat cycles in the first and last 5 s of each bout: cycle frequency (top) and VeDBA (bottom); lines are loess smooths per recording."
+include_graphics("fig/hawkmoth/within_bout.png")
+```
+
+Frequency and amplitude are nearly flat within bouts (@fig-within). Take-off adds no clear frequency or amplitude transient beyond the first one or two seconds, and only some recordings show a slight rise in frequency in the last second before landing.
+
+```{r}
+#| label: fig-cycles
+#| fig-cap: "Cycle-to-cycle variation. Left: distribution of cycle frequency per recording. Right: cycle VeDBA against cycle frequency with a linear fit per recording."
+include_graphics("fig/hawkmoth/cycles.png")
+```
+
+Cycle frequencies are tightly clustered within each recording (@fig-cycles; CV `r rng(100 * cyc_cv$cv, f0)`%). Within recordings, faster cycles tend to have higher VeDBA (Spearman ρ `r rng(fa$r, f2)`), but per-cycle VeDBA from ~7 samples is noisy and the outlying cycles (< 22 or > 35 Hz) are likely zero-crossing artefacts.
+
+# Pre-flight warm-up
+
+```{r}
+#| label: fig-warm
+#| fig-cap: "Warm-up episodes aligned to their end, split by whether a flight follows. Top: warm-up frequency; middle: dynamic SD. Bottom left: warm-up frequency in the last 2 s against wingbeat frequency in the first 1 s of the following flight (dashed line = equal). Bottom right: rate of frequency change against episode duration."
+include_graphics("fig/hawkmoth/warmup.png")
+```
+
+Warm-up episodes that lasted ≥ 15 s or ended in take-off ("Flight Hz" is the wingbeat frequency of the bout that followed):
+
+```{r warm-table}
+warmup %>% left_join(warm_to %>% select(rec, episode, bout_wbf), by = c("rec", "episode")) %>%
+  filter(duration_s >= 15 | takeoff) %>% arrange(rec, t_start) %>%
+  transmute(Recording = rec, `Start (s)` = f0(t_start), `Duration (s)` = f0(duration_s),
+            `Hz start` = f1(hz_start), `Hz end` = f1(hz_end), `Hz/s` = f2(hz_slope),
+            `g start` = f2(dyn_start), `g end` = f2(dyn_end),
+            `Take-off` = if_else(takeoff, "yes", ""), `Flight Hz` = if_else(is.na(bout_wbf), "", f1(bout_wbf))) %>%
+  kable(format = "pipe", align = "lrrrrrrrlr")
+```
+
+Warm-up shows up in every recording except Moth7 (whose first 14 s are missing) and Moth8 (a disturbed start, "lost ball early on"). It is the "charging up" noted for the moths that did not fly (@fig-warm). In the long episodes the frequency rises slowly, by about `r f2(median(filter(warmup, duration_s >= 15)$hz_slope))` Hz/s (median for episodes ≥ 15 s), and the amplitude increases towards take-off. Moth9 is the clearest case: it shivered for ~90 s, rising from ~`r f0(min(m9$hz_start))` to ~`r f0(max(m9$hz_end))` Hz, and the first second of its flight was still at ~40 Hz before it settled at 29–30 Hz (@fig-ov9). Moth4 shivered for over a minute, reaching ~`r f0(max(m4$hz_end))` Hz, but never took off. Warm-up frequencies are therefore not limited to the flight range, and its upper end may say more about thoracic temperature than about flight.
+
+Short warm-up episodes at 1–1.5 g just before take-off are partly the moth beating its wings harder before it lifts off, and they are hard to tell apart from very weak flight. This applies especially to the 18 Sep recording, whose "warm-up" sits at ~1 g and 25–30 Hz, close to flight frequency.
+
+# Caveats
+
+- No video or 3D track was used, so flight vs warm-up is inferred from amplitude and frequency. The 3D tracks (`moth001_c3d.tsv` etc.) could validate bout boundaries and link wingbeat to flight speed and climb.
+- Tag orientation was not standardised, so per-axis amplitudes and posture are only comparable within a recording.
+- Body mass, temperature and the identity of each moth across days are not recorded in the data folder.
+- The warm-up frequency of a window occasionally locks onto the 2nd harmonic (e.g. the end of Moth2's first episode, 54 Hz), so single-window values above ~50 Hz should be checked against the spectrogram.
+- One 1.4 s burst at 39 Hz and 2.5 g within Moth9's warm-up was excluded from flight by the 35 Hz cap. It may have been a brief attempted take-off.
+
+{{< pagebreak >}}
+
+# Appendix: all recordings
+
+```{r}
+#| results: asis
+# one captioned figure per recording, so title and plot stay on one page
+for (k in recs$rec) {
+  note <- recs$note[recs$rec == k]
+  cat(sprintf("![%s%s](fig/hawkmoth/overview_%s.png)\n\n", k, if_else(note == "", "", paste0(": ", note)), k))
+}
+```

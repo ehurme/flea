@@ -125,6 +125,45 @@ prefer `flea_functions.R`.
   `Colombia25/Hummingbird/Results/report` on Dropbox.
 - `ppg_sensor.R` — PPG (photoplethysmography) sensor data exploration.
 
+## Butterflies
+
+- `butterfly_flight_dynamics.R` — flight dynamics of butterflies flying
+  freely in the Mainau butterfly house (no video): 27 Aug 2024 *Morpho
+  peleides* (continuous 210 Hz) and 8-9 Aug 2024 (continuous 105 Hz at
+  +-2/8 g, plus long 105 Hz burst and 0.45 Hz recordings). For continuous
+  recordings it detects flight bouts with `flight_segment()` (rescaled for a
+  6-10 Hz wingbeat; bouts need a clear 4-14 Hz wingbeat peak, with a
+  subharmonic check), then per bout (wingbeat frequency, VeDBA, per-axis
+  amplitude, harmonic ratio, posture, take-off/landing peaks) and per
+  wingbeat cycle (frequency, amplitude, flapping pauses, time course from
+  take-off to landing), with a spectrogram per recording and a check against
+  the hand-cropped flights in `extracted_flights`. Burst (0.6 s every 2 min)
+  and 0.45 Hz flight thresholds are calibrated by subsampling the +-8 g
+  continuous recordings, then give flight share over time next to the light
+  sensor. Outputs to `Butterfly_Mainau/Results/flight_dynamics` on Dropbox.
+- `reports/butterfly_flight_report.qmd` — PDF report of those results
+  (Quarto + Typst). Render with `Rscript reports/render_butterfly_report.R`
+  after running the script; the PDF goes to `Butterfly_Mainau/Results/report`
+  on Dropbox.
+
+## Moths
+
+- `hawkmoth_flight_dynamics.R` — flight dynamics and pre-flight warm-up of
+  death's-head hawkmoths (*Acherontia atropos*) in the barn, 17-20 Sep 2024
+  (`2024-Fall-Moth-Barn`; continuous 210 Hz +-8 g, ~204 s per recording;
+  duplicate and corrupt exports are listed in the script header). Flight
+  bouts come from `flight_segment()` (rescaled for a ~28 Hz wingbeat; bouts
+  need a clear 18-35 Hz wingbeat peak), with bout features and wingbeat
+  cycles as in the butterfly script. Warm-up (low-amplitude wing shivering
+  at 20-55 Hz) is detected in 1-s windows outside flight and summarised per
+  episode (duration, frequency/amplitude at start and end, frequency slope,
+  whether it ends in take-off). Outputs to
+  `2024-Fall-Moth-Barn/Results/flight_dynamics` on Dropbox.
+- `reports/hawkmoth_flight_report.qmd` — PDF report of those results
+  (Quarto + Typst). Render with `Rscript reports/render_hawkmoth_report.R`
+  after running the script; the PDF goes to
+  `2024-Fall-Moth-Barn/Results/report` on Dropbox.
+
 ## Field-season analysis scripts (Flanders 2025)
 
 These are largely one-off scripts with hard-coded local/Dropbox paths, kept
