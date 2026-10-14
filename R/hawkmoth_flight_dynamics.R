@@ -297,7 +297,7 @@ process_rec <- function(r) {
   }
   ep <- as_tibble(ep) %>% select(-any_of(c("w0", "w1")))
   if (!"episode" %in% names(win)) win$episode <- NA_integer_
-  list(samples = tibble(rec = r$rec, t = d$t, dyn = fs$dyn, fly = fly2, bout = bout_id),
+  list(samples = tibble(rec = r$rec, t = d$t, x = d$x, y = d$y, z = d$z, dyn = fs$dyn, fly = fly2, bout = bout_id),
        bouts = bt %>% mutate(rec = r$rec), cycles = cy %>% mutate(rec = r$rec),
        windows = win %>% mutate(rec = r$rec), warmup = ep %>% mutate(rec = r$rec),
        spec = ws$spec %>% mutate(rec = r$rec))

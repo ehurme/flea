@@ -159,6 +159,15 @@ prefer `flea_functions.R`.
   episode (duration, frequency/amplitude at start and end, frequency slope,
   whether it ends in take-off). Outputs to
   `2024-Fall-Moth-Barn/Results/flight_dynamics` on Dropbox.
+- `hawkmoth_nanofox_vedba_sim.R` — what VeDBA a NanoFox / TinyFox (same
+  accelerometer) would report for those hawkmoths: replays the FleaTag
+  recordings as 1-s, 28 Hz bursts, sums sqrt(ax²+ay²+az²) − 1 g per burst
+  (plus variants) by state (flight, warm-up, rest, other), and builds NanoFox
+  36-min window values (18 bursts, 99.44 m/s² count steps) against minutes
+  of flight, compared with the moth NanoFox data in
+  `Moths/Data/wildcloud`. Needs the `.rds` of
+  `hawkmoth_flight_dynamics.R`; outputs to
+  `2024-Fall-Moth-Barn/Results/nanofox_vedba_sim` on Dropbox.
 - `reports/hawkmoth_flight_report.qmd` — PDF report of those results
   (Quarto + Typst). Render with `Rscript reports/render_hawkmoth_report.R`
   after running the script; the PDF goes to
