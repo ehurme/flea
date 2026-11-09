@@ -1,0 +1,188 @@
+---
+title: "FleaTag accelerometry in butterflies"
+subtitle: "Flight dynamics of free-flying butterflies in the Mainau butterfly house, August 2024"
+author: "Edward Hurme"
+date: today
+format:
+  typst:
+    papersize: a4
+    margin:
+      x: 2cm
+      y: 2cm
+    fontsize: 10pt
+    toc: false
+    section-numbering: "1."
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+# Rendered by reports/render_butterfly_report.R (copies figures next to this
+# file, renders with the Quarto/Typst bundled in Positron, moves the PDF to
+# Dropbox). Numbers are read from the outputs of R/butterfly_flight_dynamics.R.
+library(tidyverse)
+library(knitr)
+res_dir <- "C:/Users/ehurme/Dropbox/MPI/Wingbeat/Butterfly_Mainau/Results/flight_dynamics"
+rd <- function(f) read_csv(file.path(res_dir, f), show_col_types = FALSE, col_types = cols(tag = "c"))
+
+recs <- rd("recordings.csv")
+indiv <- rd("individual_summary.csv") %>% mutate(note = coalesce(note, ""))
+bouts <- rd("bouts.csv")
+cycles <- rd("wingbeat_cycles.csv")
+manual <- rd("manual_flight_check.csv")
+calib <- rd("calibration.csv")
+long <- rd("long_summary.csv")
+activity <- rd("activity_bins.csv")
+res <- readRDS(file.path(res_dir, "flight_dynamics.rds"))
+
+f1 <- function(x) formatC(x, format = "f", digits = 1)
+f0 <- function(x) formatC(x, format = "f", digits = 0)
+f2 <- function(x) formatC(x, format = "f", digits = 2)
+rng <- function(x, f = f1) paste0(f(min(x, na.rm = TRUE)), "–", f(max(x, na.rm = TRUE)))
+
+cont <- filter(recs, type == "continuous")
+fl <- filter(bouts, wingbeat)
+not_wb <- filter(bouts, !wingbeat)
+flew <- filter(indiv, n_bouts > 0)
+s27 <- filter(flew, session == "0827"); s08 <- filter(flew, session == "0808")
+morpho_fl <- filter(fl, str_starts(rec, "0827"))
+fast <- filter(flew, wbf_hz > 9)
+amp8 <- filter(flew, range_g >= 8)
+
+# sparse-mode calibration
+bc <- filter(calib, mode == "62-sample bursts"); lc <- filter(calib, mode == "0.45 Hz")
+burst_thr <- res$params$burst_flight_g; low_thr <- res$params$low_flight_g
+burst_acc <- max(bc$bal_acc)
+low_best <- slice_max(lc, bal_acc, n = 1)
+low_used <- filter(lc, abs(thr - low_thr) < 1e-9)
+sb <- filter(res$sim_bursts, truth, pred)
+burst_err <- median(abs(sb$wbf_hz - sb$bout_wbf), na.rm = TRUE)
+burst_1hz <- mean(abs(sb$wbf_hz - sb$bout_wbf) <= 1, na.rm = TRUE)
+
+# mass vs wingbeat (0827 notes)
+mw <- filter(flew, !is.na(mass_g))
+```
+
+# Summary
+
+FleaTags were glued ventrally to butterflies flying freely in the Mainau butterfly house. On 27 Aug 2024 *Morpho peleides* carried tags recording continuously at 210 Hz (±8 g) for ~3 min, cropped from release. On 8–9 Aug 2024 (species not recorded) tags recorded continuously at 105 Hz for ~7 min (two at ±2 g), or for 2–23 h in sparse modes: 0.6 s bursts every 2 min, or one sample every 2.22 s. There is no video, so flight comes from the accelerometer alone.
+
+- **Flight bouts are short.** `r nrow(fl)` flapping-flight bouts in `r nrow(flew)` continuous recordings last `r rng(fl$duration_s)` s (median `r f1(median(fl$duration_s))` s), i.e. ~`r f0(min(fl$duration_s * fl$wbf_hz))` to ~`r f0(max(fl$duration_s * fl$wbf_hz))` wingbeats; only `r sum(fl$duration_s > 10)` last longer than 10 s.
+- **Wingbeat frequency is `r rng(filter(flew, wbf_hz < 9)$wbf_hz)` Hz** (recording means; *Morpho* `r rng(s27$wbf_hz)` Hz, 8 Aug `r rng(filter(s08, wbf_hz < 9)$wbf_hz)` Hz). One 8 Aug individual (`r paste(fast$rec, collapse = ", ")`) beats at ~`r f0(fast$wbf_hz)` Hz and is probably a different, smaller species.
+- **Flapping is irregular from cycle to cycle** (cycle-frequency CV `r rng(100 * flew$cycle_freq_cv, f0)`%), and `r rng(100 * flew$glide_frac, f0)`% of cycles are short pauses in flapping (glides). Several recordings speed up their wingbeat in the last ~0.5 s before landing.
+- **Flight is detected reliably.** All samples of the `r nrow(manual)` hand-cropped *Morpho* flights are classified as flight. Simulated 0.6 s bursts separate flight from rest with a balanced accuracy of `r f2(burst_acc)` and give the bout wingbeat frequency to within `r f1(burst_err)` Hz (median). One sample every 2.22 s is weaker (balanced accuracy `r f2(low_used$bal_acc)` at the threshold that gives an unbiased flight share).
+- **Over hours, butterflies fly little:** `r rng(long$flight_pct)`% of the time in the long recordings. Flight happens in daylight, and the bursts show the same wingbeat frequency as the continuous bouts.
+
+# Data
+
+```{r data-cont}
+cont %>% left_join(indiv %>% select(rec, flight_s, n_bouts, wbf_hz, note), by = "rec") %>%
+  transmute(Recording = rec, `Rate (Hz)` = f0(hz), `Range (±g)` = range_g,
+            `Length (s)` = f0(duration_h * 3600), `Flight (s)` = f1(flight_s), Bouts = n_bouts,
+            `WBF (Hz)` = if_else(is.na(wbf_hz), "", f1(wbf_hz)), Note = note) %>%
+  kable(format = "pipe", align = "lrrrrrrl")
+```
+
+Continuous recordings (above). The 27 Aug files were cropped by hand from release; the notes and masses come from `_deploymentDetails.txt` (tags 3043 and 303D had empty memory that day; 304E was noted as lost but a cropped file exists). The "mass" in the notes is not stated to be butterfly or tag mass. Tag IDs were reused between sessions, so recordings are named session–tag.
+
+```{r data-long}
+long %>% transmute(Recording = rec,
+                   Mode = if_else(type == "burst", "105 Hz, 62 samples every 2 min", "0.45 Hz continuous"),
+                   `Length (h)` = f1(duration_h), Observations = n_obs) %>%
+  kable(format = "pipe", align = "llrr")
+```
+
+Long recordings from 8–9 Aug (above).
+
+# Methods in brief
+
+**Flight.** For the continuous recordings a running dynamic SD over 0.45 s (~3 wingbeats) with hysteresis (enter flight above 0.8 g, leave below 0.4 g; a run must reach 1.5 g; runs < 0.3 s merged) gives sample-level flight (`flight_segment()` in `R/flea_functions.R`). Bouts must last ≥ 1 s and have a clear wingbeat peak (≥ 15% of the 1–30 Hz power within ±1 Hz of the peak); this removes shakes, handling and impacts (`r nrow(not_wb)` candidate bouts). Wingbeat frequency is the peak of the spectrum summed over the three axes in 4–14 Hz, moved down to the subharmonic if that holds ≥ 30% of the peak power (the 2nd harmonic of a slow *Morpho* wingbeat falls in the range of a fast fundamental).
+
+**Wingbeat cycles.** Each bout is band-passed around its wingbeat frequency and projected on its first principal component; upward zero crossings start each cycle. Cycles with a VeDBA below 0.3 × the bout median are counted as flapping pauses (glides). Amplitudes of the ±2 g tags are clipped and left out of all amplitude comparisons.
+
+**Sparse modes.** The ±8 g continuous recordings, with flight known, were resampled to 105 Hz and cut into 62-sample windows, or decimated to one sample every 2.22 s (all sampling phases). A burst is flight when its dynamic SD exceeds a threshold, chosen for the best balanced accuracy. A 0.45 Hz sample is flight when ||a| − 1 g| exceeds a threshold, chosen so that the flight share is unbiased.
+
+# Flight in the continuous recordings
+
+```{r}
+#| label: fig-ov
+#| fig-cap: "Example: *Morpho peleides* 0827-304E. Top: dynamic SD with flight bouts shaded and the hysteresis thresholds dashed. Bottom: spectrogram with the bout wingbeat frequencies (white crosses); harmonics show at 2× and 3× the wingbeat frequency."
+include_graphics("fig/butterfly/overview_0827-304E.png")
+```
+
+Flight stands out clearly from rest (@fig-ov): bouts reach 1.3–2.5 g dynamic SD, while rest is near 0 and movement on the perch rarely passes 1 g. Movement without a clear wingbeat (e.g. at 60–90 s in @fig-ov) is not counted as flight. The `r nrow(manual)` *Morpho* flights cropped by hand (`r rng(manual$manual_s)` s) are classified as flight in `r f0(100 * min(manual$frac_flight))`% of their samples.
+
+```{r}
+#| label: fig-bouts
+#| fig-cap: "Flight bouts. Wingbeat frequency per recording (point size = bout duration), frequency against duration, mean VeDBA against frequency (±8 g tags), and the distribution of bout durations."
+include_graphics("fig/butterfly/bouts.png")
+```
+
+*Morpho* flies in short bouts of `r rng(morpho_fl$duration_s)` s at `r rng(morpho_fl$wbf_hz)` Hz (@fig-bouts). Per recording the mean wingbeat frequency is `r rng(s27$wbf_hz)` Hz on 27 Aug and `r rng(filter(s08, wbf_hz < 9)$wbf_hz)` Hz on 8 Aug, apart from `r paste(fast$rec, collapse = ", ")` at `r f1(fast$wbf_hz)` Hz. On ±8 g tags the mean VeDBA during flight is `r rng(amp8$vedba, f2)` g, and peak |a| is `r rng(amp8$takeoff_peak_g)` g at take-off and `r rng(amp8$landing_peak_g)` g at landing (medians per recording). The ±2 g tags clip in `r rng(100 * filter(flew, range_g < 8)$clip_frac, f0)`% of flight samples, so their amplitudes are unusable, but their frequencies agree with the ±8 g tags.
+
+```{r}
+#| label: fig-within
+#| fig-cap: "Wingbeat cycles in the first and last 3 s of each bout (flapping cycles only): cycle frequency (top) and VeDBA (bottom, ±8 g tags); lines are loess smooths per recording."
+include_graphics("fig/butterfly/within_bout.png")
+```
+
+Within bouts (@fig-within), cycle frequency is roughly flat after take-off. In several recordings it rises in the last ~0.5 s before landing, as the butterfly brakes. VeDBA tends to increase over the first second after take-off in the 27 Aug *Morpho* and to fall just before landing.
+
+```{r}
+#| label: fig-cycles
+#| fig-cap: "Cycle to cycle. Top left: cycle frequency per recording. Top right: cycle VeDBA against cycle frequency (±8 g tags). Bottom left: share of cycles that are flapping pauses. Bottom right: wingbeat frequency against the mass in the 27 Aug deployment notes."
+include_graphics("fig/butterfly/cycles.png")
+```
+
+Cycle frequencies are spread more widely than in hawkmoths (CV `r rng(100 * flew$cycle_freq_cv, f0)`%; @fig-cycles). Part of this spread is real (butterfly flight alternates flapping with short glides and turns), and part is resolution: at 105 Hz one ~6.5 Hz wingbeat spans only ~16 samples and crossings are not interpolated between samples, so cycle frequencies fall on a coarse grid. In most recordings faster cycles have higher VeDBA. Flapping pauses make up `r rng(100 * flew$glide_frac, f0)`% of cycles. Among the `r nrow(mw)` 27 Aug butterflies with a mass in the notes, wingbeat frequency rises with mass (`r f1(min(mw$wbf_hz))` Hz at `r f2(mw$mass_g[which.min(mw$wbf_hz)])` g to `r f1(max(mw$wbf_hz))` Hz at `r f2(mw$mass_g[which.max(mw$wbf_hz)])` g). With four points and an unclear definition of "mass", this is only a pattern to check.
+
+# Sparse sampling modes
+
+```{r}
+#| label: fig-calib
+#| fig-cap: "Calibration on the ±8 g continuous recordings. Top left: dynamic SD of 62-sample windows by true state. Top right: wingbeat frequency in a 0.6 s window against its bout. Bottom left: balanced accuracy against threshold for both modes. Bottom right: classified vs true flight share for 0.45 Hz sampling."
+include_graphics("fig/butterfly/calibration.png")
+```
+
+**Bursts (0.6 s every 2 min).** A dynamic SD threshold of `r f2(burst_thr)` g classifies simulated bursts with a balanced accuracy of `r f2(burst_acc)` (@fig-calib). A single 0.6 s burst holds only ~4 wingbeats, but its wingbeat frequency is still within 1 Hz of the bout value in `r f0(100 * burst_1hz)`% of flight bursts (median error `r f2(burst_err)` Hz).
+
+**0.45 Hz.** One sample every 2.22 s catches a random phase of the wingbeat, so only flight with large accelerations is visible. The best balanced accuracy (`r f2(low_best$bal_acc)` at `r f2(low_best$thr)` g) overestimates the flight share (`r f0(100 * low_best$pred_share)`% vs `r f0(100 * low_best$true_share)`% true), so `r f2(low_thr)` g, which gives an unbiased share (`r f1(100 * low_used$pred_share)`% vs `r f1(100 * low_used$true_share)`%), was used, at a balanced accuracy of `r f2(low_used$bal_acc)`. Flight percentages from this mode are usable as totals, but individual samples are not reliable.
+
+```{r}
+#| label: fig-long
+#| fig-cap: "Long recordings. Top: flight share in 30-min bins and the light sensor (log10 summed RGB). Bottom: wingbeat frequency of flight bursts in the long recordings and of continuous bouts."
+include_graphics("fig/butterfly/long_recordings.png")
+```
+
+```{r long-table}
+long %>% transmute(Recording = rec, `Length (h)` = f1(duration_h), `Flight (%)` = f1(flight_pct),
+                   `Wingbeat bursts` = coalesce(as.character(n_wingbeat_bursts), ""),
+                   `Median WBF (Hz)` = if_else(is.na(burst_wbf_median), "", f1(burst_wbf_median))) %>%
+  kable(format = "pipe", align = "lrrrr")
+```
+
+The long recordings show `r rng(long$flight_pct)`% flight (table above, @fig-long). Flight is concentrated in a few hours with bright light. 302C, the longest recording, goes dark after ~10 h (night) and shows almost no flight over 22 h, so this butterfly may have been inactive or lost its tag. In the burst recordings, flight bursts with a clear wingbeat peak at `r rng(long$burst_wbf_median)` Hz (median per recording), the same range as the continuous bouts.
+
+# Caveats
+
+- No video, so flight is inferred from amplitude and a clear wingbeat. Slow gliding with little flapping would be missed, and vigorous non-flight flapping (e.g. wing-opening displays on the perch) could be counted.
+- The species of the 8 Aug butterflies is not recorded; 0808-3054 (~10 Hz) is probably a different species from the others.
+- Tag orientation is not standardised, so posture and per-axis amplitudes compare bouts within an individual only.
+- Frequencies are on the tag clock (no external time reference).
+- At 105 Hz, single-cycle frequencies are coarse; the bout-level spectral estimates are more precise.
+
+{{< pagebreak >}}
+
+# Appendix: continuous recordings
+
+```{r}
+#| results: asis
+# one captioned figure per recording, so title and plot stay on one page
+for (k in cont$rec) {
+  note <- indiv$note[indiv$rec == k]
+  cat(sprintf("![%s%s](fig/butterfly/overview_%s.png)\n\n", k,
+              if_else(length(note) == 0 || note == "", "", paste0(": ", note)), k))
+}
+```
