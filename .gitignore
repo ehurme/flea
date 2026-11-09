@@ -10,3 +10,5 @@ reports/fig/
 reports/*.pdf
 reports/*.typ
 reports/*_files/
+*.png
+*.txt
