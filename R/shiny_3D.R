@@ -245,6 +245,21 @@ ui <- fluidPage(
                      downloadButton("downloadAccAligned", "Export aligned ACC data (CSV)")
                    )
                  ),
+                 h4("Clock sync (estimate offset from recorded times)"),
+                 helpText("Times as HH:MM:SS or HH:MM:SS.sss. Sync frame uses the same frame numbering ",
+                          "as the track CSV (30 fps). If no phone-in-video frame is given, the camera ",
+                          "start time is used as track frame 0 (assumes camera clock = phone clock)."),
+                 fluidRow(
+                   column(3, textInput("syncActivation", "Tag activation (phone time)", placeholder = "14:03:12")),
+                   column(3, numericInput("syncDelay", "Activation -> ACC start delay (s)", value = 30, step = 1)),
+                   column(3, numericInput("syncFrame", "Frame showing phone", value = NA, min = 0, step = 1)),
+                   column(3, textInput("syncPhoneAtFrame", "Phone time in that frame", placeholder = "14:05:40.5"))
+                 ),
+                 fluidRow(
+                   column(3, textInput("syncVideoStart", "Video start (camera time)", placeholder = "14:05:01")),
+                   column(6, verbatimTextOutput("syncSummary")),
+                   column(3, actionButton("syncApply", "Use estimated offset"))
+                 ),
                  plotOutput("accAlignPlot", height = "400px"))
       )
     )
@@ -801,6 +816,54 @@ server <- function(input, output, session) {
     showNotification(paste0("Auto-align: offset set to ", round(offset, 2),
                              "s (bin size ", bin_size, "s). Fine-tune by hand from here."),
                       type = "message")
+  })
+
+  # ---- Clock sync: phone/camera times -> estimated ACC offset ----
+  # shortcut: clock times are seconds-of-day, so recordings spanning midnight
+  # give wrong offsets; switch to full date-times if that ever happens.
+  parse_clock <- function(x) {
+    if (is.null(x) || !nzchar(trimws(x))) return(NA_real_)
+    p <- suppressWarnings(as.numeric(strsplit(trimws(x), ":")[[1]]))
+    if (length(p) != 3 || anyNA(p)) return(NA_real_)
+    sum(p * c(3600, 60, 1))
+  }
+  stopifnot(parse_clock("01:00:30.5") == 3630.5, is.na(parse_clock("1:30")), is.na(parse_clock("")))
+
+  syncEstimate <- reactive({
+    act <- parse_clock(input$syncActivation)
+    phone_at_frame <- parse_clock(input$syncPhoneAtFrame)
+    video_start <- parse_clock(input$syncVideoStart)
+    # Phone time at track frame 0: phone-in-video sync wins, camera start is the fallback
+    phone_frame0 <- if (!is.na(phone_at_frame) && !is.na(input$syncFrame)) {
+      phone_at_frame - input$syncFrame / 30
+    } else video_start
+    list(act = act, phone_frame0 = phone_frame0, video_start = video_start,
+         from_phone = !is.na(phone_at_frame) && !is.na(input$syncFrame),
+         offset = act + input$syncDelay - phone_frame0)
+  })
+
+  output$syncSummary <- renderText({
+    s <- syncEstimate()
+    fmt <- function(sec) if (is.na(sec)) "?" else sprintf("%02d:%02d:%06.3f", sec %/% 3600, (sec %% 3600) %/% 60, sec %% 60)
+    lines <- c(
+      paste0("Track frame 0 (phone time): ", fmt(s$phone_frame0),
+             if (s$from_phone) " [from phone in video]" else if (!is.na(s$video_start)) " [from camera start]" else ""),
+      paste0("Est. ACC start (phone time): ", fmt(s$act + input$syncDelay)),
+      paste0("Est. offset: ", if (is.na(s$offset)) "need activation + (sync frame or video start)" else paste0(round(s$offset, 2), " s"))
+    )
+    if (s$from_phone && !is.na(s$video_start)) {
+      lines <- c(lines, paste0("Camera clock - phone clock: ", round(s$video_start - s$phone_frame0, 2), " s"))
+    }
+    paste(lines, collapse = "\n")
+  })
+
+  observeEvent(input$syncApply, {
+    off <- syncEstimate()$offset
+    if (is.na(off)) {
+      showNotification("Clock sync: need activation time plus a sync frame/phone time or video start.", type = "warning")
+      return(invisible(NULL))
+    }
+    updateNumericInput(session, "accOffset", value = round(off, 2))
   })
 
   output$accAlignPlot <- renderPlot({
