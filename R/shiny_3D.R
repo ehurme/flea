@@ -247,7 +247,7 @@ ui <- fluidPage(
                  ),
                  h4("Clock sync (estimate offset from recorded times)"),
                  helpText("Times as HH:MM:SS or HH:MM:SS.sss. Sync frame uses the same frame numbering ",
-                          "as the track CSV (30 fps). If no phone-in-video frame is given, the camera ",
+                          "as the track CSV (60 fps). If no phone-in-video frame is given, the camera ",
                           "start time is used as track frame 0 (assumes camera clock = phone clock)."),
                  fluidRow(
                    column(3, textInput("syncActivation", "Tag activation (phone time)", placeholder = "14:03:12")),
@@ -591,7 +591,7 @@ server <- function(input, output, session) {
   straightFlights <- reactive({
     df <- filtered()
     req(nrow(df) > 0)
-    fps <- 30  # matches the fixed frame-rate assumed elsewhere (dt = 1/30)
+    fps <- 60  # matches the fixed frame-rate assumed elsewhere (dt = 1/30)
     win_frames <- max(round(1 * fps), 2)
     max_elev_change <- req(input$maxElevChange)
     min_duration <- req(input$minDuration)
