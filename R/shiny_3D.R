@@ -287,7 +287,7 @@ server <- function(input, output, session) {
       mutate(dx = x - lag(x),
              dy = y - lag(y),
              dz = z - lag(z),
-             dt = (frame - lag(frame)) * (1/30),
+             dt = (frame - lag(frame)) * (1/60),
              speed = sqrt(dx^2 + dy^2 + dz^2)/dt,
              heading = atan2(dy, dx)) %>%
       ungroup()
@@ -591,7 +591,7 @@ server <- function(input, output, session) {
   straightFlights <- reactive({
     df <- filtered()
     req(nrow(df) > 0)
-    fps <- 60  # matches the fixed frame-rate assumed elsewhere (dt = 1/30)
+    fps <- 60  # matches the fixed frame-rate assumed elsewhere (dt = 1/60)
     win_frames <- max(round(1 * fps), 2)
     max_elev_change <- req(input$maxElevChange)
     min_duration <- req(input$minDuration)
@@ -729,7 +729,7 @@ server <- function(input, output, session) {
 
   # ---- Accelerometer (FleaTag) import & alignment ----
   # Same offset/sampling-rate correction as R/align_boris_flea_shiny.R, just
-  # aligned against this app's track (frame/30 -> seconds) instead of BORIS.
+  # aligned against this app's track (frame/60 -> seconds) instead of BORIS.
 
   accRaw <- reactive({
     req(input$accFile)
@@ -775,7 +775,7 @@ server <- function(input, output, session) {
     trk <- trk %>% filter(keypoint %in% input$keypoint)
     req(nrow(trk) > 0)
 
-    track_time <- trk$frame / 30
+    track_time <- trk$frame / 60
     acc_time <- acc$timeSeconds
     max_time <- max(max(track_time, na.rm = TRUE), max(acc_time, na.rm = TRUE))
 
@@ -835,7 +835,7 @@ server <- function(input, output, session) {
     video_start <- parse_clock(input$syncVideoStart)
     # Phone time at track frame 0: phone-in-video sync wins, camera start is the fallback
     phone_frame0 <- if (!is.na(phone_at_frame) && !is.na(input$syncFrame)) {
-      phone_at_frame - input$syncFrame / 30
+      phone_at_frame - input$syncFrame / 60
     } else video_start
     list(act = act, phone_frame0 = phone_frame0, video_start = video_start,
          from_phone = !is.na(phone_at_frame) && !is.na(input$syncFrame),
@@ -877,7 +877,7 @@ server <- function(input, output, session) {
       filter(keypoint %in% input$keypoint) %>%
       group_by(frame) %>%
       summarise(speed = mean(speed, na.rm = TRUE), .groups = "drop") %>%
-      mutate(time_s = frame / 30, y_norm = speed / max(speed, na.rm = TRUE))
+      mutate(time_s = frame / 60, y_norm = speed / max(speed, na.rm = TRUE))
 
     # Vertical offset is display-only: shifts the ACC band up/down so it can
     # be read as its own row instead of overlapping the track-speed line,
@@ -899,7 +899,7 @@ server <- function(input, output, session) {
   output$downloadAccAligned <- downloadHandler(
     filename = function() paste0("acc_aligned_", Sys.Date(), ".csv"),
     content = function(file) {
-      df <- accAligned() %>% mutate(frame_equiv = time_aligned_s * 30)
+      df <- accAligned() %>% mutate(frame_equiv = time_aligned_s * 60)
       write.csv(df, file, row.names = FALSE)
     }
   )
